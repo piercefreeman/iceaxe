@@ -18,12 +18,28 @@ async def handle_generate(
     Creates a new migration definition file, comparing the previous version
     (if it exists) with the current schema.
 
+    :param package: The current python package name. This should match the name of the
+        project that's specified in pyproject.toml or setup.py.
+
+    :param message: An optional message to include in the migration file. Helps
+        with describing changes and searching for past migration logic over time.
+
+    ```python {{sticky: True}}
+    from iceaxe.migrations.cli import handle_generate
+    from click import command, option
+
+    @command()
+    @option("--message", help="A message to include in the migration file.")
+    def generate_migration(message: str):
+        db_connection = DBConnection(...)
+        handle_generate("my_project", db_connection, message=message)
+    ```
     """
 
     CONSOLE.print("[bold blue]Generating migration to current schema")
 
     CONSOLE.print(
-        "[grey58]Note that Mountaineer's migration support is well tested but still in beta."
+        "[grey58]Note that Iceaxe's migration support is well tested but still in beta."
     )
     CONSOLE.print(
         "[grey58]File an issue @ https://github.com/piercefreeman/iceaxe/issues if you encounter any problems."
@@ -102,6 +118,9 @@ async def handle_apply(
     """
     Applies all migrations that have not been applied to the database.
 
+    :param package: The current python package name. This should match the name of the
+        project that's specified in pyproject.toml or setup.py.
+
     """
 
     migrations_path = resolve_package_path(package) / "migrations"
@@ -141,7 +160,7 @@ async def handle_apply(
             f"[bold blue]Applying {migration.up_revision}...", spinner="dots"
         ):
             start = monotonic_ns()
-            await migration.handle_up(db_connection)
+            await migration._handle_up(db_connection)
 
         CONSOLE.print(
             f"[bold green]🚀 Applied {migration.up_revision} in {(monotonic_ns() - start) / 1e9:.2f}s"
@@ -154,6 +173,9 @@ async def handle_rollback(
 ):
     """
     Rolls back the last migration that was applied to the database.
+
+    :param package: The current python package name. This should match the name of the
+        project that's specified in pyproject.toml or setup.py.
 
     """
 
@@ -193,7 +215,7 @@ async def handle_rollback(
         spinner="dots",
     ):
         start = monotonic_ns()
-        await this_migration.handle_down(db_connection)
+        await this_migration._handle_down(db_connection)
 
     CONSOLE.print(
         f"[bold green]🪃 Rolled back migration to {this_migration.down_revision} in {(monotonic_ns() - start) / 1e9:.2f}s"

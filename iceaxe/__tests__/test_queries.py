@@ -131,11 +131,15 @@ def test_group_by():
 
 
 def test_update():
-    new_query = QueryBuilder().update(UserDemo).where(UserDemo.id == 1)
-    new_query.update_values = {"name": "New Name"}
+    new_query = (
+        QueryBuilder()
+        .update(UserDemo)
+        .set(UserDemo.name, "John")
+        .where(UserDemo.id == 1)
+    )
     assert new_query.build() == (
-        'UPDATE "userdemo" SET name = %s WHERE "userdemo"."id" = $1',
-        [1],
+        'UPDATE "userdemo" SET "userdemo"."name" = $1 WHERE "userdemo"."id" = $2',
+        ["John", 1],
     )
 
 

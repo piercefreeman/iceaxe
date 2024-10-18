@@ -14,6 +14,19 @@ class Migrator:
 
     """
 
+    actor: DatabaseActions
+    """
+    The main interface for client migrations. Add tables, columns, and more using this wrapper.
+    """
+
+    db_connection: DBConnection
+    """
+    The main database connection for the migration. Use this to run raw SQL queries. We auto-wrap
+    this connection in a transaction block for you, so successful migrations will be
+    automatically committed when completed and unsuccessful migrations will be rolled back.
+
+    """
+
     def __init__(self, db_connection: DBConnection):
         self.actor = DatabaseActions(dry_run=False, db_connection=db_connection)
         self.db_connection = db_connection
@@ -47,6 +60,10 @@ class Migrator:
             )
 
     async def set_active_revision(self, value: str | None):
+        """
+        Sets the active revision in the migration_info table.
+
+        """
         LOGGER.info(f"Setting active revision to {value}")
 
         query = """
@@ -58,6 +75,11 @@ class Migrator:
         LOGGER.info("Active revision set")
 
     async def get_active_revision(self) -> str | None:
+        """
+        Gets the active revision from the migration_info table.
+        Requires that the migration_info table has been initialized.
+
+        """
         query = """
             SELECT active_revision FROM migration_info
         """

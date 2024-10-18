@@ -29,16 +29,10 @@ class MigrationRevision(MigrationRevisionBase):
     up_revision: str = {rev}
     down_revision: str | None = {prev_rev}
 
-    async def up(
-        self,
-        migrator: Migrator = Depends(MigrationDependencies.get_migrator),
-    ):
+    async def up(self, migrator: Migrator):
 {up_code}
 
-    async def down(
-        self,
-        migrator: Migrator = Depends(MigrationDependencies.get_migrator),
-    ):
+    async def down(self, migrator: Migrator):
 {down_code}
 """
 

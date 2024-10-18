@@ -176,6 +176,28 @@ class DatabaseActions:
 
     """
 
+    dry_run: bool
+    """
+    If True, the actions will be recorded but not executed. This is used
+    internally within Iceaxe to generate a typehinted list of actions that will
+    be inserted into the migration files without actually running the logic.
+
+    """
+
+    dry_run_actions: list[DryRunAction | DryRunComment]
+    """
+    A list of actions that will be executed. Each arg/kwarg passed to our action
+    functions during the dryrun will be recorded here.
+
+    """
+
+    prod_sqls: list[str]
+    """
+    A list of SQL strings that will be executed against the database. This is
+    only populated when dry_run is False.
+
+    """
+
     def __init__(
         self,
         dry_run: bool = True,
@@ -194,6 +216,10 @@ class DatabaseActions:
         self.prod_sqls: list[str] = []
 
     async def add_table(self, table_name: str):
+        """
+        Create a new table in the database.
+
+        """
         assert_is_safe_sql_identifier(table_name)
 
         await self._record_signature(
@@ -205,6 +231,11 @@ class DatabaseActions:
         )
 
     async def drop_table(self, table_name: str):
+        """
+        Delete a table and all its contents from the database. This is
+        a destructive action, all data in the table will be lost.
+
+        """
         assert_is_safe_sql_identifier(table_name)
 
         await self._record_signature(
@@ -223,6 +254,18 @@ class DatabaseActions:
         explicit_data_is_list: bool = False,
         custom_data_type: str | None = None,
     ):
+        """
+        Add a new column to a table.
+
+        :param table_name: The name of the table to add the column to.
+        :param column_name: The name of the column to add.
+        :param explicit_data_type: The explicit data type of the column.
+        :param explicit_data_is_list: Whether the explicit data type is a list.
+        :param custom_data_type: A custom data type for the column, like an enum
+            that's registered in Postgres.
+
+        """
+
         if not explicit_data_type and not custom_data_type:
             raise ValueError(
                 "Must provide either an explicit data type or a custom data type."
@@ -262,6 +305,11 @@ class DatabaseActions:
         )
 
     async def drop_column(self, table_name: str, column_name: str):
+        """
+        Remove a column. This is a destructive action, all data in the column
+        will be lost.
+
+        """
         assert_is_safe_sql_identifier(table_name)
         assert_is_safe_sql_identifier(column_name)
 
@@ -277,6 +325,10 @@ class DatabaseActions:
     async def rename_column(
         self, table_name: str, old_column_name: str, new_column_name: str
     ):
+        """
+        Rename a column in a table.
+
+        """
         assert_is_safe_sql_identifier(table_name)
         assert_is_safe_sql_identifier(old_column_name)
         assert_is_safe_sql_identifier(new_column_name)
@@ -302,6 +354,11 @@ class DatabaseActions:
         explicit_data_is_list: bool = False,
         custom_data_type: str | None = None,
     ):
+        """
+        Modify the data type of a column. This does not inherently perform any data migrations
+        of the column data types. It simply alters the table schema.
+
+        """
         if not explicit_data_type and not custom_data_type:
             raise ValueError(
                 "Must provide either an explicit data type or a custom data type."
@@ -379,6 +436,18 @@ class DatabaseActions:
         constraint_name: str,
         constraint_args: BaseModel | None = None,
     ):
+        """
+        Adds a constraint to a table. This main entrypoint is used
+        for all constraint types.
+
+        :param table_name: The name of the table to add the constraint to.
+        :param columns: The columns to link as part of the constraint.
+        :param constraint: The type of constraint to add.
+        :param constraint_name: The name of the constraint.
+        :param constraint_args: The configuration parameters for the particular constraint
+            type, if relevant.
+
+        """
         assert_is_safe_sql_identifier(table_name)
         for column_name in columns:
             assert_is_safe_sql_identifier(column_name)
@@ -429,6 +498,10 @@ class DatabaseActions:
         table_name: str,
         constraint_name: str,
     ):
+        """
+        Deletes a constraint from a table.
+
+        """
         assert_is_safe_sql_identifier(table_name)
         assert_is_safe_sql_identifier(constraint_name)
 
@@ -450,6 +523,12 @@ class DatabaseActions:
         columns: list[str],
         index_name: str,
     ):
+        """
+        Adds a new index to a table. Since this requires building up the augmentary data structures
+        for more efficient search operations, this migration action can take some
+        time on large tables.
+
+        """
         assert_is_safe_sql_identifier(table_name)
         for column_name in columns:
             assert_is_safe_sql_identifier(column_name)
@@ -471,6 +550,10 @@ class DatabaseActions:
         table_name: str,
         index_name: str,
     ):
+        """
+        Deletes an index from a table.
+
+        """
         assert_is_safe_sql_identifier(table_name)
         assert_is_safe_sql_identifier(index_name)
 
@@ -485,6 +568,10 @@ class DatabaseActions:
         )
 
     async def add_not_null(self, table_name: str, column_name: str):
+        """
+        Requires data inserted into a column to be non-null.
+
+        """
         assert_is_safe_sql_identifier(table_name)
         assert_is_safe_sql_identifier(column_name)
 
@@ -499,6 +586,11 @@ class DatabaseActions:
         )
 
     async def drop_not_null(self, table_name: str, column_name: str):
+        """
+        Removes the non-null constraint from a column, which allows new values
+        to be inserted as NULL.
+
+        """
         assert_is_safe_sql_identifier(table_name)
         assert_is_safe_sql_identifier(column_name)
 
@@ -513,6 +605,10 @@ class DatabaseActions:
         )
 
     async def add_type(self, type_name: str, values: list[str]):
+        """
+        Create a new enum type with the given initial values.
+
+        """
         assert_is_safe_sql_identifier(type_name)
 
         formatted_values = format_sql_values(values)
@@ -525,6 +621,10 @@ class DatabaseActions:
         )
 
     async def add_type_values(self, type_name: str, values: list[str]):
+        """
+        Modifies the enum members of an existing type to add new values.
+
+        """
         assert_is_safe_sql_identifier(type_name)
 
         sql_commands: list[str] = []
@@ -551,10 +651,17 @@ class DatabaseActions:
         target_columns: list[tuple[str, str]],
     ):
         """
-        Dropping values from an existing type isn't natively supported by Postgres. We work
-        around this limitation by specifying the "target_columns" that already reference the
-        enum type that we want to drop.
+        Deletes enum members from an existing type.
 
+        This will only succeed at runtime if you have no table rows that
+        currently reference the outdated enum values.
+
+        Note that dropping values from an existing type isn't natively supported by Postgres. We work
+        around this limitation by specifying the "target_columns" that reference the
+        enum type that we want to drop, so we can effectively create a new type.
+
+        :param type_name: The name of the enum type to drop values from.
+        :param values: The values to drop from the enum type.
         :param target_columns: Specified tuples of (table_name, column_name) pairs that
         should be migrated to the new enum value.
 
@@ -607,6 +714,10 @@ class DatabaseActions:
         )
 
     async def drop_type(self, type_name: str):
+        """
+        Deletes an enum type from the database.
+
+        """
         assert_is_safe_sql_identifier(type_name)
 
         await self._record_signature(
@@ -682,6 +793,11 @@ class DatabaseActions:
             await self.db_connection.conn.execute(sql)
 
     def add_comment(self, text: str, previous_line: bool = False):
+        """
+        Only used in dry-run mode to record a code-based comment that should
+        be added to the migration file.
+
+        """
         if self.dry_run:
             self.dry_run_actions.append(
                 DryRunComment(text=text, previous_line=previous_line)

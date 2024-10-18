@@ -51,6 +51,26 @@ OrderDirection = Literal["ASC", "DESC"]
 
 
 class QueryBuilder(Generic[P, QueryType]):
+    """
+    The QueryBuilder owns all construction of the SQL string given
+    python method chaining. Each function call returns a reference to
+    self, so you can construct as many queries as you want in a single
+    line of code.
+
+    Internally we store most input-arguments as-is. We provide runtime
+    value-checking to make sure the right objects are being passed in to query
+    manipulation functions so our final build() will deterministically succeed
+    if the query build was successful.
+
+    Note that this runtime check-checking validates different types than the static
+    analysis. To satisfy Python logical operations (like `join(ModelA.id == ModelB.id)`) we
+    have many overloaded operators that return objects at runtime but are masked to their
+    Python types for the purposes of static analysis. This implementation detail should
+    be transparent to the user but is noted in case you see different types through
+    runtime inspection than you see during the typehints.
+
+    """
+
     def __init__(self):
         self.query_type: QueryType | None = None
         self.main_model: Type[TableBase] | None = None
@@ -66,7 +86,7 @@ class QueryBuilder(Generic[P, QueryType]):
         self.having_conditions: list[FieldComparison] = []
 
         # Query specific params
-        self.update_values: dict[str, Any] = {}
+        self.update_values: list[tuple[DBFieldClassDefinition, Any]] = []
         self.select_fields: list[QueryLiteral] = []
         self.select_raw: list[
             DBFieldClassDefinition | Type[TableBase] | FunctionMetadata
@@ -91,6 +111,11 @@ class QueryBuilder(Generic[P, QueryType]):
         QueryBuilder[tuple[T, *Ts], Literal["SELECT"]]
         | QueryBuilder[T, Literal["SELECT"]]
     ):
+        """
+        Creates a new select query for the given fields. Returns the same
+        QueryBuilder that is now flagged as a SELECT query.
+
+        """
         all_fields: tuple[
             DBFieldClassDefinition | Type[TableBase] | FunctionMetadata, ...
         ]
@@ -154,16 +179,31 @@ class QueryBuilder(Generic[P, QueryType]):
                 self.select_aggregate_count += 1
 
     def update(self, model: Type[TableBase]) -> QueryBuilder[None, Literal["UPDATE"]]:
+        """
+        Creates a new update query for the given model. Returns the same
+        QueryBuilder that is now flagged as an UPDATE query.
+
+        """
         self.query_type = "UPDATE"  # type: ignore
         self.main_model = model
         return self  # type: ignore
 
     def delete(self, model: Type[TableBase]) -> QueryBuilder[None, Literal["DELETE"]]:
+        """
+        Creates a new delete query for the given model. Returns the same
+        QueryBuilder that is now flagged as a DELETE query.
+
+        """
         self.query_type = "DELETE"  # type: ignore
         self.main_model = model
         return self  # type: ignore
 
     def where(self, *conditions: bool):
+        """
+        Adds a where condition to the query. The conditions are combined with
+        AND. If you need to use OR, you can use the `and_` and `or_` constructors.
+
+        """
         # During typechecking these seem like bool values, since they're the result
         # of the comparison set. But at runtime they will be the whole object that
         # gives the comparison. We can assert that's true here.
@@ -177,6 +217,13 @@ class QueryBuilder(Generic[P, QueryType]):
         return self
 
     def order_by(self, field: Any, direction: OrderDirection = "ASC"):
+        """
+        Adds an order by clause to the query. The field must be a column.
+
+        :param field: The field to order by.
+        :param direction: The direction to order by, either ASC or DESC.
+
+        """
         if not is_column(field):
             raise ValueError(f"Invalid order by field: {field}")
 
@@ -185,6 +232,15 @@ class QueryBuilder(Generic[P, QueryType]):
         return self
 
     def join(self, table: Type[TableBase], on: bool, join_type: JoinType = "INNER"):
+        """
+        Adds a join clause to the query. The `on` parameter should be a comparison
+        between two columns.
+
+        :param table: The table to join.
+        :param on: The condition to join on, like MyTable.column == OtherTable.column.
+        :param join_type: The type of join to perform, either INNER, LEFT, RIGHT, or FULL.
+
+        """
         if not is_comparison(on):
             raise ValueError(
                 f"Invalid join condition: {on}, should be MyTable.column == OtherTable.column"
@@ -199,15 +255,41 @@ class QueryBuilder(Generic[P, QueryType]):
         self.join_clauses.append(join_sql)
         return self
 
+    def set(self, column: T, value: T | None):
+        """
+        Sets a column to a specific value in an update query.
+
+        """
+        if not is_column(column):
+            raise ValueError(f"Invalid column for set: {column}")
+
+        self.update_values.append((column, value))
+        return self
+
     def limit(self, value: int):
+        """
+        Limit the number of rows returned by the query. Useful in pagination
+        or in only selecting a subset of the results.
+
+        """
         self.limit_value = value
         return self
 
     def offset(self, value: int):
+        """
+        Offset the number of rows returned by the query.
+
+        """
         self.offset_value = value
         return self
 
     def group_by(self, *fields: Any):
+        """
+        Groups the results of the query by the given fields. This allows
+        you to use aggregation functions in your selection queries. See `func`
+        for the supported aggregation functions.
+
+        """
         valid_fields: list[DBFieldClassDefinition] = []
 
         for field in fields:
@@ -219,6 +301,12 @@ class QueryBuilder(Generic[P, QueryType]):
         return self
 
     def having(self, *conditions: bool):
+        """
+        Require the result of an aggregation query like func.sum(MyTable.column)
+        to be within a certain range. This is similar to the `where` clause but
+        for aggregation results.
+
+        """
         valid_conditions: list[FieldComparison] = []
 
         for condition in conditions:
@@ -232,12 +320,18 @@ class QueryBuilder(Generic[P, QueryType]):
     def text(self, query: str, *variables: Any):
         """
         Override the ORM builder and use a raw SQL query instead.
+
         """
         self.text_query = query
         self.text_variables = list(variables)
         return self
 
     def build(self) -> tuple[str, list[Any]]:
+        """
+        Builds the query and returns the query string and the variables that
+        should be sent over the wire.
+
+        """
         if self.text_query:
             return self.text_query, self.text_variables
 
@@ -256,7 +350,14 @@ class QueryBuilder(Generic[P, QueryType]):
                 raise ValueError("No model selected for query")
 
             primary_table = QueryIdentifier(self.main_model.get_table_name())
-            set_clause = ", ".join(f"{k} = %s" for k in self.update_values.keys())
+
+            set_components = []
+            for column, value in self.update_values:
+                column_token, _ = column.to_query()
+                set_components.append(f"{column_token} = ${len(variables) + 1}")
+                variables.append(value)
+
+            set_clause = ", ".join(set_components)
             query = f"UPDATE {primary_table} SET {set_clause}"
         elif self.query_type == "DELETE":
             if not self.main_model:
@@ -368,12 +469,24 @@ def select(
 ) -> (
     QueryBuilder[tuple[T, *Ts], Literal["SELECT"]] | QueryBuilder[T, Literal["SELECT"]]
 ):
+    """
+    Shortcut to create a SELECT query with a new QueryBuilder.
+
+    """
     return QueryBuilder().select(fields)
 
 
 def update(model: Type[TableBase]) -> QueryBuilder[None, Literal["UPDATE"]]:
+    """
+    Shortcut to create an UPDATE query with a new QueryBuilder.
+
+    """
     return QueryBuilder().update(model)
 
 
 def delete(model: Type[TableBase]) -> QueryBuilder[None, Literal["DELETE"]]:
+    """
+    Shortcut to create a DELETE query with a new QueryBuilder.
+
+    """
     return QueryBuilder().delete(model)
