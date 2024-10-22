@@ -634,14 +634,14 @@ class DatabaseActions:
             formatted_value = format_sql_values([value])
             sql_commands.append(
                 f"""
-            ALTER TYPE "{type_name}" ADD VALUE {formatted_value}
+            ALTER TYPE "{type_name}" ADD VALUE {formatted_value};
             """
             )
 
         await self._record_signature(
             self.add_type_values,
             dict(type_name=type_name, values=values),
-            ";\n".join(sql_commands),
+            sql_commands,
         )
 
     async def drop_type_values(
@@ -747,7 +747,7 @@ class DatabaseActions:
         self,
         action: Callable,
         kwargs: dict[str, Any],
-        sql: str,
+        sql: str | list[str],
     ):
         """
         If we are doing a dry-run through the migration, only record the method
@@ -787,10 +787,12 @@ class DatabaseActions:
             if self.db_connection is None:
                 raise ValueError("Cannot execute migration without a database session")
 
-            LOGGER.debug(f"Executing migration SQL: {sql}")
+            sql_list = [sql] if isinstance(sql, str) else sql
+            for sql_query in sql_list:
+                LOGGER.debug(f"Executing migration SQL: {sql_query}")
 
-            self.prod_sqls.append(sql)
-            await self.db_connection.conn.execute(sql)
+                self.prod_sqls.append(sql_query)
+                await self.db_connection.conn.execute(sql_query)
 
     def add_comment(self, text: str, previous_line: bool = False):
         """
