@@ -1,6 +1,7 @@
 from enum import StrEnum
 
 import pytest
+import asyncpg
 
 from iceaxe.__tests__.conf_models import ArtifactDemo, ComplexDemo, UserDemo
 from iceaxe.base import TableBase
@@ -763,3 +764,155 @@ async def test_upsert_multiple_conflict_fields(db_connection: DBConnection):
     assert result is not None
     assert len(result) == 2
     assert {r[1] for r in result} == {"john@example.com", "jane@example.com"}
+
+
+@pytest.mark.asyncio
+async def test_for_update_prevents_concurrent_modification(db_connection: DBConnection):
+    """
+    Test that FOR UPDATE actually locks the row for concurrent modifications.
+    """
+    # Create initial user
+    user = UserDemo(name="John Doe", email="john@example.com")
+    await db_connection.insert([user])
+
+    async with db_connection.transaction():
+        # Lock the row with FOR UPDATE
+        [locked_user] = await db_connection.exec(
+            QueryBuilder()
+            .select(UserDemo)
+            .where(UserDemo.id == user.id)
+            .for_update()
+        )
+        assert locked_user.name == "John Doe"
+
+        # Try to update from another connection - this should block
+        # until our transaction is done
+        other_conn = DBConnection(
+            await asyncpg.connect(
+                host="localhost",
+                port=5438,
+                user="iceaxe",
+                password="mysecretpassword",
+                database="iceaxe_test_db",
+            )
+        )
+        try:
+            # This should raise an error since we're using NOWAIT
+            await other_conn.exec(
+                QueryBuilder()
+                .select(UserDemo)
+                .where(UserDemo.id == user.id)
+                .for_update(nowait=True)
+            )
+            pytest.fail("Should have raised an error")
+        except asyncpg.exceptions.LockNotAvailableError:
+            # This is expected
+            pass
+        finally:
+            await other_conn.conn.close()
+
+
+@pytest.mark.asyncio
+async def test_for_update_skip_locked(db_connection: DBConnection):
+    """
+    Test that SKIP LOCKED works as expected.
+    """
+    # Create test users
+    users = [
+        UserDemo(name="User 1", email="user1@example.com"),
+        UserDemo(name="User 2", email="user2@example.com"),
+    ]
+    await db_connection.insert(users)
+
+    async with db_connection.transaction():
+        # Lock the first user
+        [locked_user] = await db_connection.exec(
+            QueryBuilder()
+            .select(UserDemo)
+            .where(UserDemo.id == users[0].id)
+            .for_update()
+        )
+        assert locked_user.name == "User 1"
+
+        # From another connection, try to select both users with SKIP LOCKED
+        other_conn = DBConnection(
+            await asyncpg.connect(
+                host="localhost",
+                port=5438,
+                user="iceaxe",
+                password="mysecretpassword",
+                database="iceaxe_test_db",
+            )
+        )
+        try:
+            # This should only return User 2 since User 1 is locked
+            result = await other_conn.exec(
+                QueryBuilder()
+                .select(UserDemo)
+                .order_by(UserDemo.id, "ASC")
+                .for_update(skip_locked=True)
+            )
+            assert len(result) == 1
+            assert result[0].name == "User 2"
+        finally:
+            await other_conn.conn.close()
+
+
+@pytest.mark.asyncio
+async def test_for_update_of_with_join(db_connection: DBConnection):
+    """
+    Test FOR UPDATE OF with JOINed tables.
+    """
+    # Create test data
+    user = UserDemo(name="John Doe", email="john@example.com")
+    await db_connection.insert([user])
+    
+    artifact = ArtifactDemo(title="Test Artifact", user_id=user.id)
+    await db_connection.insert([artifact])
+
+    async with db_connection.transaction():
+        # Lock only the artifacts table in a join query
+        [(selected_artifact, selected_user)] = await db_connection.exec(
+            QueryBuilder()
+            .select((ArtifactDemo, UserDemo))
+            .join(UserDemo, UserDemo.id == ArtifactDemo.user_id)
+            .for_update(of=(ArtifactDemo,))
+        )
+        assert selected_artifact.title == "Test Artifact"
+        assert selected_user.name == "John Doe"
+
+        # In another connection, we should be able to lock the user
+        # but not the artifact
+        other_conn = DBConnection(
+            await asyncpg.connect(
+                host="localhost",
+                port=5438,
+                user="iceaxe",
+                password="mysecretpassword",
+                database="iceaxe_test_db",
+            )
+        )
+        try:
+            # Should succeed since user table isn't locked
+            [other_user] = await other_conn.exec(
+                QueryBuilder()
+                .select(UserDemo)
+                .where(UserDemo.id == user.id)
+                .for_update(nowait=True)
+            )
+            assert other_user.name == "John Doe"
+
+            # Should fail since artifact table is locked
+            try:
+                await other_conn.exec(
+                    QueryBuilder()
+                    .select(ArtifactDemo)
+                    .where(ArtifactDemo.id == artifact.id)
+                    .for_update(nowait=True)
+                )
+                pytest.fail("Should have raised an error")
+            except asyncpg.exceptions.LockNotAvailableError:
+                # This is expected
+                pass
+        finally:
+            await other_conn.conn.close()
