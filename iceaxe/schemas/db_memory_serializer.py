@@ -19,7 +19,11 @@ from iceaxe.generics import (
     remove_null_type,
 )
 from iceaxe.migrations.action_sorter import ActionTopologicalSorter
-from iceaxe.postgres import PostgresDateTime, PostgresTime
+from iceaxe.postgres import (
+    PostgresDateTime,
+    PostgresForeignKey,
+    PostgresTime,
+)
 from iceaxe.schemas.actions import (
     CheckConstraint,
     ColumnType,
@@ -449,12 +453,21 @@ class DatabaseHandler:
 
         if info.foreign_key:
             target_table, target_column = info.foreign_key.rsplit(".", 1)
+            # Extract PostgreSQL-specific foreign key options if configured
+            on_delete = "NO ACTION"
+            on_update = "NO ACTION"
+            if isinstance(info.postgres_config, PostgresForeignKey):
+                on_delete = info.postgres_config.on_delete
+                on_update = info.postgres_config.on_update
+
             yield from self._yield_nodes(
                 _build_constraint(
                     ConstraintType.FOREIGN_KEY,
                     foreign_key_constraint=ForeignKeyConstraint(
                         target_table=target_table,
                         target_columns=frozenset({target_column}),
+                        on_delete=on_delete,
+                        on_update=on_update,
                     ),
                 ),
                 dependencies=[

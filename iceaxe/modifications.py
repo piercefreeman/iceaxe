@@ -165,6 +165,7 @@ class ModificationTracker:
             return
 
         log_level = getattr(logging, self.verbosity)
+        LOGGER.setLevel(log_level)  # Ensure logger will capture messages at this level
 
         for mod in self.modified_models.values():
             LOGGER.log(

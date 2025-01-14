@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel
 
 
@@ -55,3 +57,31 @@ class PostgresTime(PostgresFieldBase):
         Defaults to False.
 
     """
+
+
+ForeignKeyModifications = Literal[
+    "RESTRICT", "NO ACTION", "CASCADE", "SET DEFAULT", "SET NULL"
+]
+
+
+class PostgresForeignKey(PostgresFieldBase):
+    """
+    Extension to Python's ForeignKey type that specifies additional Postgres-specific configuration.
+    Used to customize the behavior of foreign key constraints in Postgres.
+
+    ```python {{sticky: True}}
+    from iceaxe import TableBase, Field
+
+    class Office(TableBase):
+        id: int = Field(primary_key=True)
+        name: str
+
+    class Employee(TableBase):
+        id: int = Field(primary_key=True)
+        name: str
+        office_id: int = Field(foreign_key="office.id", postgres_config=PostgresForeignKey(on_delete="CASCADE", on_update="CASCADE"))
+    ```
+    """
+
+    on_delete: ForeignKeyModifications = "NO ACTION"
+    on_update: ForeignKeyModifications = "NO ACTION"

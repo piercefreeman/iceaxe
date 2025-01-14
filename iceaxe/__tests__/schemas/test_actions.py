@@ -793,3 +793,67 @@ async def test_drop_index(
         """
     )
     assert len(result) == 0
+
+
+@pytest.mark.asyncio
+async def test_add_constraint_foreign_key_actions(
+    db_backed_actions: DatabaseActions,
+    db_connection: DBConnection,
+):
+    # Set up two tables since we need a table target
+    await db_connection.conn.execute(
+        "CREATE TABLE external_table (id SERIAL PRIMARY KEY, external_column VARCHAR)"
+    )
+    await db_connection.conn.execute(
+        "CREATE TABLE test_table (id SERIAL PRIMARY KEY, test_column_id INTEGER)"
+    )
+
+    # Insert an existing object into the external table
+    await db_connection.conn.execute(
+        "INSERT INTO external_table (id, external_column) VALUES ($1, $2)",
+        1,
+        "test_value",
+    )
+
+    # Add a foreign_key with CASCADE actions
+    await db_backed_actions.add_constraint(
+        "test_table",
+        ["test_column_id"],
+        ConstraintType.FOREIGN_KEY,
+        "test_foreign_key_constraint",
+        constraint_args=ForeignKeyConstraint(
+            target_table="external_table",
+            target_columns=frozenset({"id"}),
+            on_delete="CASCADE",
+            on_update="CASCADE",
+        ),
+    )
+
+    # Insert a row that references the external table
+    await db_connection.conn.execute(
+        "INSERT INTO test_table (test_column_id) VALUES ($1)",
+        1,
+    )
+
+    # Update the external table id - should cascade to test_table
+    await db_connection.conn.execute(
+        "UPDATE external_table SET id = $1 WHERE id = $2",
+        2,
+        1,
+    )
+
+    # Verify the update cascaded
+    result = await db_connection.conn.fetch(
+        "SELECT test_column_id FROM test_table WHERE id = 1"
+    )
+    assert result[0]["test_column_id"] == 2
+
+    # Delete from external table - should cascade to test_table
+    await db_connection.conn.execute(
+        "DELETE FROM external_table WHERE id = $1",
+        2,
+    )
+
+    # Verify the delete cascaded
+    result = await db_connection.conn.fetch("SELECT COUNT(*) FROM test_table")
+    assert result[0]["count"] == 0

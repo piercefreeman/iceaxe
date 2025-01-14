@@ -311,3 +311,42 @@ async def test_db_serializer_foreign_key(
     ]
 
     compare_db_objects(db_objects, expected_db_objects)
+
+
+@pytest.mark.asyncio
+async def test_db_serializer_foreign_key_actions(
+    db_connection: DBConnection,
+    clear_all_database_objects,
+):
+    """
+    Test that foreign key ON UPDATE/ON DELETE actions are correctly deserialized from the database.
+    """
+    await db_connection.conn.execute(
+        """
+        CREATE TABLE foreignmodel (
+            id SERIAL PRIMARY KEY
+        );
+        CREATE TABLE exampledbmodel (
+            id SERIAL PRIMARY KEY,
+            foreign_key_id INTEGER REFERENCES foreignmodel(id) ON DELETE CASCADE ON UPDATE CASCADE NOT NULL
+        );
+        """
+    )
+
+    db_serializer = DatabaseSerializer()
+    db_objects = []
+    async for values in db_serializer.get_objects(db_connection):
+        db_objects.append(values)
+
+    # Find the foreign key constraint
+    fk_constraint = next(
+        obj
+        for obj, _ in db_objects
+        if isinstance(obj, DBConstraint)
+        and obj.constraint_type == ConstraintType.FOREIGN_KEY
+    )
+    assert fk_constraint.foreign_key_constraint is not None
+    assert fk_constraint.foreign_key_constraint.target_table == "foreignmodel"
+    assert fk_constraint.foreign_key_constraint.target_columns == frozenset({"id"})
+    assert fk_constraint.foreign_key_constraint.on_delete == "CASCADE"
+    assert fk_constraint.foreign_key_constraint.on_update == "CASCADE"

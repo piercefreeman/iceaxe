@@ -11,7 +11,7 @@ from pydantic.fields import FieldInfo
 from iceaxe import Field, TableBase
 from iceaxe.base import IndexConstraint, UniqueConstraint
 from iceaxe.field import DBFieldInfo
-from iceaxe.postgres import PostgresDateTime, PostgresTime
+from iceaxe.postgres import PostgresDateTime, PostgresForeignKey, PostgresTime
 from iceaxe.schemas.actions import (
     ColumnType,
     ConstraintType,
@@ -1426,3 +1426,38 @@ async def test_foreign_key_table_dependency():
         for table_idx in table_creation_indices
         for fk_idx in fk_constraint_indices
     )
+
+
+def test_foreign_key_actions():
+    """
+    Test that foreign key ON UPDATE/ON DELETE actions are correctly serialized from TableBase schemas.
+    """
+
+    class ParentModel(TableBase):
+        id: int = Field(primary_key=True)
+
+    class ChildModel(TableBase):
+        id: int = Field(primary_key=True)
+        parent_id: int = Field(
+            foreign_key="parentmodel.id",
+            postgres_config=PostgresForeignKey(
+                on_delete="CASCADE",
+                on_update="CASCADE",
+            ),
+        )
+
+    migrator = DatabaseMemorySerializer()
+    db_objects = list(migrator.delegate([ParentModel, ChildModel]))
+
+    # Extract all constraints for verification
+    constraints = [obj for obj, _ in db_objects if isinstance(obj, DBConstraint)]
+
+    # Find the foreign key constraint
+    fk_constraint = next(
+        c for c in constraints if c.constraint_type == ConstraintType.FOREIGN_KEY
+    )
+    assert fk_constraint.foreign_key_constraint is not None
+    assert fk_constraint.foreign_key_constraint.target_table == "parentmodel"
+    assert fk_constraint.foreign_key_constraint.target_columns == frozenset({"id"})
+    assert fk_constraint.foreign_key_constraint.on_delete == "CASCADE"
+    assert fk_constraint.foreign_key_constraint.on_update == "CASCADE"
