@@ -627,24 +627,47 @@ class FunctionBuilder:
         metadata.literal = QueryLiteral(f"to_timestamp({metadata.literal}, '{format}')")
         return cast(datetime, metadata)
 
-    def to_tsvector(self, language: str, field: T) -> FunctionMetadata:
+    def to_tsvector(self, language: str, field: T | list[T]) -> FunctionMetadata:
         """
-        Creates a tsvector from a text field for full-text search.
+        Creates a tsvector from one or more text fields for full-text search.
 
         :param language: The language to use for text search (e.g., 'english')
-        :param field: The text field to convert to tsvector
+        :param field: A single text field or list of text fields to convert to tsvector
         :return: A function metadata object that resolves to a tsvector
 
         ```python {{sticky: True}}
-        # Create a tsvector from a text field
+        # Create a tsvector from a single text field
         vector = func.to_tsvector('english', Article.content)
+
+        # Create a tsvector from multiple text fields
+        vector = func.to_tsvector('english', [Article.title, Article.content, Article.summary])
         ```
         """
-        metadata = self._column_to_metadata(field)
-        metadata.literal = QueryLiteral(
-            f"to_tsvector('{language}', {metadata.literal})"
-        )
-        return metadata
+        if isinstance(field, list):
+            if not field:
+                raise ValueError("Cannot create tsvector from empty list of fields")
+
+            # Start with the first field
+            result = self._column_to_metadata(field[0])
+            result.literal = QueryLiteral(
+                f"to_tsvector('{language}', {result.literal})"
+            )
+
+            # Concatenate remaining fields
+            for f in field[1:]:
+                metadata = self._column_to_metadata(f)
+                metadata.literal = QueryLiteral(
+                    f"to_tsvector('{language}', {metadata.literal})"
+                )
+                result.literal = QueryLiteral(f"{result.literal} || {metadata.literal}")
+
+            return result
+        else:
+            metadata = self._column_to_metadata(field)
+            metadata.literal = QueryLiteral(
+                f"to_tsvector('{language}', {metadata.literal})"
+            )
+            return metadata
 
     def to_tsquery(self, language: str, query: str) -> FunctionMetadata:
         """

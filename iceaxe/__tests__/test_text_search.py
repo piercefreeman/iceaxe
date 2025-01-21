@@ -119,11 +119,9 @@ async def test_combined_field_search(indexed_db_connection: DBConnection):
     for article in articles:
         await article.save(indexed_db_connection)
 
-    # Search across all fields
-    vector = (
-        func.to_tsvector("english", Article.title)
-        .concat(func.to_tsvector("english", Article.content))
-        .concat(func.to_tsvector("english", Article.summary))
+    # Search across all fields using list syntax
+    vector = func.to_tsvector(
+        "english", [Article.title, Article.content, Article.summary]
     )
     query = func.to_tsquery("english", "python & guide")
 
@@ -132,6 +130,20 @@ async def test_combined_field_search(indexed_db_connection: DBConnection):
     )
     assert len(results) == 1
     assert results[0].id == 1  # Only first article has both "python" and "guide"
+
+    # Test the original concatenation syntax still works
+    vector_concat = (
+        func.to_tsvector("english", Article.title)
+        .concat(func.to_tsvector("english", Article.content))
+        .concat(func.to_tsvector("english", Article.summary))
+    )
+    query = func.to_tsquery("english", "python & guide")
+
+    results_concat = await indexed_db_connection.exec(
+        select(Article).where(vector_concat.matches(query))
+    )
+    assert len(results_concat) == 1
+    assert results_concat[0].id == 1  # Results should be the same with both approaches
 
 
 @pytest.mark.asyncio
