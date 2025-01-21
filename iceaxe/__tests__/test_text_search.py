@@ -1,11 +1,10 @@
-from typing import List, Literal, Optional, TypeVar, cast
+from typing import Optional, TypeVar, cast
 
 import pytest
 
 from iceaxe import Field, TableBase, alias, func, select
 from iceaxe.field import DBFieldInfo
 from iceaxe.postgres import LexemePriority, PostgresFullText
-from iceaxe.queries import QueryBuilder
 from iceaxe.session import DBConnection
 
 T = TypeVar("T")
@@ -28,13 +27,6 @@ class Article(TableBase):
         await db_connection.insert([self])
 
 
-async def execute(
-    query: QueryBuilder[T, Literal["SELECT"]], db_connection: DBConnection
-) -> List[T]:
-    """Execute a query and return the results."""
-    return cast(List[T], await db_connection.exec(query))
-
-
 @pytest.mark.asyncio
 async def test_basic_text_search(indexed_db_connection: DBConnection):
     """Test basic text search functionality using query builder."""
@@ -55,16 +47,16 @@ async def test_basic_text_search(indexed_db_connection: DBConnection):
     title_vector = func.to_tsvector("english", Article.title)
     query = func.to_tsquery("english", "python")
 
-    results = await execute(
-        select(Article).where(title_vector.matches(query)), indexed_db_connection
+    results = await indexed_db_connection.exec(
+        select(Article).where(title_vector.matches(query))
     )
     assert len(results) == 1
     assert results[0].id == 1
 
     # Search in content only
     content_vector = func.to_tsvector("english", Article.content)
-    results = await execute(
-        select(Article).where(content_vector.matches(query)), indexed_db_connection
+    results = await indexed_db_connection.exec(
+        select(Article).where(content_vector.matches(query))
     )
     assert len(results) == 3  # All articles mention Python in content
 
@@ -85,24 +77,24 @@ async def test_complex_text_search(indexed_db_connection: DBConnection):
     # Test AND operator
     vector = func.to_tsvector("english", Article.title)
     query = func.to_tsquery("english", "python & programming")
-    results = await execute(
-        select(Article).where(vector.matches(query)), indexed_db_connection
+    results = await indexed_db_connection.exec(
+        select(Article).where(vector.matches(query))
     )
     assert len(results) == 1
     assert results[0].id == 1
 
     # Test OR operator
     query = func.to_tsquery("english", "python | javascript")
-    results = await execute(
-        select(Article).where(vector.matches(query)), indexed_db_connection
+    results = await indexed_db_connection.exec(
+        select(Article).where(vector.matches(query))
     )
     assert len(results) == 3
     assert {r.id for r in results} == {1, 2, 3}
 
     # Test NOT operator
     query = func.to_tsquery("english", "programming & !python")
-    results = await execute(
-        select(Article).where(vector.matches(query)), indexed_db_connection
+    results = await indexed_db_connection.exec(
+        select(Article).where(vector.matches(query))
     )
     assert len(results) == 0  # No articles have "programming" without "python" in title
 
@@ -135,8 +127,8 @@ async def test_combined_field_search(indexed_db_connection: DBConnection):
     )
     query = func.to_tsquery("english", "python & guide")
 
-    results = await execute(
-        select(Article).where(vector.matches(query)), indexed_db_connection
+    results = await indexed_db_connection.exec(
+        select(Article).where(vector.matches(query))
     )
     assert len(results) == 1
     assert results[0].id == 1  # Only first article has both "python" and "guide"
@@ -170,11 +162,10 @@ async def test_weighted_text_search(indexed_db_connection: DBConnection):
     )
     query = func.to_tsquery("english", "python & guide")
 
-    results = await execute(
+    results = await indexed_db_connection.exec(
         select((Article, alias("ts_rank", func.ts_rank(vector, query))))
         .where(vector.matches(query))
         .order_by("ts_rank", direction="DESC"),
-        indexed_db_connection,
     )
     assert len(results) == 2
     # First article should rank higher because "Python Guide" is in title (weight A)
@@ -277,11 +268,10 @@ async def test_weight_priority_variants(indexed_db_connection: DBConnection):
     )
     query = func.to_tsquery("english", "python & guide")
 
-    results = await execute(
+    results = await indexed_db_connection.exec(
         select((Article, alias("ts_rank", func.ts_rank(vector, query))))
         .where(vector.matches(query))
         .order_by("ts_rank", direction="DESC"),
-        indexed_db_connection,
     )
 
     assert len(results) == 2
