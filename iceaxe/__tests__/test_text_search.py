@@ -3,10 +3,10 @@ from typing import List, Literal, Optional, TypeVar, cast
 import pytest
 
 from iceaxe import Field, TableBase, func, select
-from iceaxe.postgres import PostgresFullText, LexemePriority
+from iceaxe.field import DBFieldInfo
+from iceaxe.postgres import LexemePriority, PostgresFullText
 from iceaxe.queries import QueryBuilder
 from iceaxe.session import DBConnection
-from iceaxe.field import DBFieldInfo
 
 T = TypeVar("T")
 
@@ -85,19 +85,25 @@ async def test_complex_text_search(indexed_db_connection: DBConnection):
     # Test AND operator
     vector = func.to_tsvector("english", Article.title)
     query = func.to_tsquery("english", "python & programming")
-    results = await execute(select(Article).where(vector.matches(query)), indexed_db_connection)
+    results = await execute(
+        select(Article).where(vector.matches(query)), indexed_db_connection
+    )
     assert len(results) == 1
     assert results[0].id == 1
 
     # Test OR operator
     query = func.to_tsquery("english", "python | javascript")
-    results = await execute(select(Article).where(vector.matches(query)), indexed_db_connection)
+    results = await execute(
+        select(Article).where(vector.matches(query)), indexed_db_connection
+    )
     assert len(results) == 3
     assert {r.id for r in results} == {1, 2, 3}
 
     # Test NOT operator
     query = func.to_tsquery("english", "programming & !python")
-    results = await execute(select(Article).where(vector.matches(query)), indexed_db_connection)
+    results = await execute(
+        select(Article).where(vector.matches(query)), indexed_db_connection
+    )
     assert len(results) == 0  # No articles have "programming" without "python" in title
 
 
@@ -129,7 +135,9 @@ async def test_combined_field_search(indexed_db_connection: DBConnection):
     )
     query = func.to_tsquery("english", "python & guide")
 
-    results = await execute(select(Article).where(vector.matches(query)), indexed_db_connection)
+    results = await execute(
+        select(Article).where(vector.matches(query)), indexed_db_connection
+    )
     assert len(results) == 1
     assert results[0].id == 1  # Only first article has both "python" and "guide"
 
@@ -196,26 +204,76 @@ async def test_weight_priority_variants(indexed_db_connection: DBConnection):
     # Create a variant of Article using the enum
     class ArticleWithEnum(TableBase):
         id: int = Field(primary_key=True)
-        title: str = Field(postgres_config=PostgresFullText(language="english", weight=LexemePriority.HIGHEST))
-        content: str = Field(postgres_config=PostgresFullText(language="english", weight=LexemePriority.HIGH))
+        title: str = Field(
+            postgres_config=PostgresFullText(
+                language="english", weight=LexemePriority.HIGHEST
+            )
+        )
+        content: str = Field(
+            postgres_config=PostgresFullText(
+                language="english", weight=LexemePriority.HIGH
+            )
+        )
         summary: Optional[str] = Field(
-            default=None, 
-            postgres_config=PostgresFullText(language="english", weight=LexemePriority.LOW)
+            default=None,
+            postgres_config=PostgresFullText(
+                language="english", weight=LexemePriority.LOW
+            ),
         )
 
     # Verify both models can be created and weights are equivalent
-    assert cast(PostgresFullText, cast(DBFieldInfo, Article.model_fields["title"]).postgres_config).weight == cast(PostgresFullText, cast(DBFieldInfo, ArticleWithEnum.model_fields["title"]).postgres_config).weight == "A"
-    assert cast(PostgresFullText, cast(DBFieldInfo, Article.model_fields["content"]).postgres_config).weight == cast(PostgresFullText, cast(DBFieldInfo, ArticleWithEnum.model_fields["content"]).postgres_config).weight == "B"
-    assert cast(PostgresFullText, cast(DBFieldInfo, Article.model_fields["summary"]).postgres_config).weight == cast(PostgresFullText, cast(DBFieldInfo, ArticleWithEnum.model_fields["summary"]).postgres_config).weight == "C"
+    assert (
+        cast(
+            PostgresFullText,
+            cast(DBFieldInfo, Article.model_fields["title"]).postgres_config,
+        ).weight
+        == cast(
+            PostgresFullText,
+            cast(DBFieldInfo, ArticleWithEnum.model_fields["title"]).postgres_config,
+        ).weight
+        == "A"
+    )
+    assert (
+        cast(
+            PostgresFullText,
+            cast(DBFieldInfo, Article.model_fields["content"]).postgres_config,
+        ).weight
+        == cast(
+            PostgresFullText,
+            cast(DBFieldInfo, ArticleWithEnum.model_fields["content"]).postgres_config,
+        ).weight
+        == "B"
+    )
+    assert (
+        cast(
+            PostgresFullText,
+            cast(DBFieldInfo, Article.model_fields["summary"]).postgres_config,
+        ).weight
+        == cast(
+            PostgresFullText,
+            cast(DBFieldInfo, ArticleWithEnum.model_fields["summary"]).postgres_config,
+        ).weight
+        == "C"
+    )
 
     # Save and query using the original Article model to verify functionality
     for article in articles:
         await article.save(indexed_db_connection)
 
     vector = (
-        func.setweight(func.to_tsvector("english", Article.title), LexemePriority.HIGHEST)
-        .concat(func.setweight(func.to_tsvector("english", Article.content), LexemePriority.HIGH))
-        .concat(func.setweight(func.to_tsvector("english", Article.summary), LexemePriority.LOW))
+        func.setweight(
+            func.to_tsvector("english", Article.title), LexemePriority.HIGHEST
+        )
+        .concat(
+            func.setweight(
+                func.to_tsvector("english", Article.content), LexemePriority.HIGH
+            )
+        )
+        .concat(
+            func.setweight(
+                func.to_tsvector("english", Article.summary), LexemePriority.LOW
+            )
+        )
     )
     query = func.to_tsquery("english", "python & guide")
 
@@ -225,7 +283,7 @@ async def test_weight_priority_variants(indexed_db_connection: DBConnection):
         .order_by("rank", direction="DESC"),
         indexed_db_connection,
     )
-    
+
     assert len(results) == 2
     # First article should rank higher because "Python Guide" is in title (HIGHEST weight)
     assert results[0][0].id == 1

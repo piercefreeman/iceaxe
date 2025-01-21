@@ -157,6 +157,9 @@ class QueryBuilder(Generic[P, QueryType]):
         ] = []
         self._select_aggregate_count = 0
 
+        # Alias tracking
+        self._alias_mappings: dict[str, QueryElementBase] = {}
+
         # Text
         self._text_query: str | None = None
         self._text_variables: list[Any] = []
@@ -462,22 +465,22 @@ class QueryBuilder(Generic[P, QueryType]):
                 self._select_fields.append(sql.select(field))
                 self._select_raw.append(field)
             elif is_alias(field):
-                # We don't actually add the alias to the selection query, assuming
-                # that it's captured in the raw query.
                 self._select_raw.append(field)
             elif is_function_metadata(field):
                 # Handle function metadata with or without alias
                 if field.local_name:
-                    # If there's an alias, use it
+                    # If there's an alias, use it and track the mapping
                     self._select_fields.append(
                         QueryLiteral(f"{field.literal} AS {field.local_name}")
                     )
+                    self._alias_mappings[field.local_name] = field.literal
                 else:
-                    # If no alias, generate one
+                    # If no alias, generate one and track the mapping
                     field.local_name = f"aggregate_{self._select_aggregate_count}"
                     self._select_fields.append(
                         QueryLiteral(f"{field.literal} AS {field.local_name}")
                     )
+                    self._alias_mappings[field.local_name] = field.literal
                     self._select_aggregate_count += 1
                 self._select_raw.append(field)
 
@@ -615,13 +618,8 @@ class QueryBuilder(Generic[P, QueryType]):
         elif is_function_metadata(field):
             field_token = field.literal
         elif isinstance(field, str):
-            # Check if this is an alias from a selected function
-            for raw_field in self._select_raw:
-                if is_function_metadata(raw_field) and raw_field.local_name == field:
-                    field_token = raw_field.literal
-                    break
-            else:
-                field_token = QueryLiteral(field)
+            # Check if this is a known alias
+            field_token = self._alias_mappings.get(field, QueryLiteral(field))
         else:
             raise ValueError(f"Invalid order by field: {field}")
 
@@ -1035,23 +1033,7 @@ class QueryBuilder(Generic[P, QueryType]):
                 )
 
         if self._order_by_clauses:
-            # For each order by clause, check if it's an alias and use the alias name
-            order_clauses = []
-            for clause in self._order_by_clauses:
-                # Check if this is an aliased column from the select
-                for raw_field in self._select_raw:
-                    if (
-                        is_function_metadata(raw_field)
-                        and raw_field.local_name
-                        and raw_field.local_name in clause
-                    ):
-                        # Use the alias name instead of the function literal
-                        clause = clause.replace(
-                            str(raw_field.literal), raw_field.local_name
-                        )
-                        break
-                order_clauses.append(clause)
-            query += " ORDER BY " + ", ".join(order_clauses)
+            query += " ORDER BY " + ", ".join(self._order_by_clauses)
 
         if self._limit_value is not None:
             query += f" LIMIT {self._limit_value}"

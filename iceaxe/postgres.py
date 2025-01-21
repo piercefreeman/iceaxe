@@ -1,11 +1,12 @@
-from typing import Literal
 from enum import StrEnum
+from typing import Literal
 
 from pydantic import BaseModel
 
 
 class LexemePriority(StrEnum):
     """Enum representing text search lexeme priority weights in Postgres."""
+
     HIGHEST = "A"
     HIGH = "B"
     LOW = "C"

@@ -84,7 +84,6 @@ async def indexed_db_connection(db_connection: DBConnection):
     yield db_connection
 
 
-
 @pytest_asyncio.fixture(autouse=True)
 async def clear_table(db_connection):
     # Clear all tables and reset sequences
