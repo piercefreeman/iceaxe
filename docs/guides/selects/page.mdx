@@ -258,14 +258,60 @@ If you have more complicated selection logic that doesn't directly reference tab
 we also support aliasing values to directly extract them from the query.
 
 ```python
-from iceaxe import alias
+from iceaxe import alias, func
 
-query = select(alias(int, "age_int")).text(
+# Simple count with alias
+query = select((alias("age_int", int))).text(
     f"""
     SELECT COUNT(*) as age_int FROM employee 
     WHERE {sql(Employee.age)} = $1
     """,
     28
 )
+
+# Using functions with aliases
+query = select((
+    Employee,
+    alias("name_length", func.length(Employee.name)),
+    alias("total_employees", func.count(Employee.id))
+)).text(
+    f"""
+    SELECT 
+        {sql.select(Employee)},
+        length({sql(Employee.name)}) as name_length,
+        COUNT({sql(Employee.id)}) as total_employees
+    FROM employee
+    GROUP BY {sql(Employee.id)}
+    """
+)
+
+# Complex example with multiple functions and joins
+query = select((
+    Employee,
+    alias("avg_age", func.avg(Employee.age)),
+    alias("department_size", func.count(Employee.id)),
+    alias("total_salary", func.sum(Employee.salary))
+)).text(
+    f"""
+    WITH department_stats AS (
+        SELECT 
+            {sql(Employee.department)},
+            avg({sql(Employee.age)}) as avg_age,
+            count({sql(Employee.id)}) as department_size,
+            sum({sql(Employee.salary)}) as total_salary
+        FROM employee
+        GROUP BY {sql(Employee.department)}
+    )
+    SELECT 
+        {sql.select(Employee)},
+        ds.avg_age,
+        ds.department_size,
+        ds.total_salary
+    FROM employee
+    JOIN department_stats ds ON ds.department = {sql(Employee.department)}
+    """
+)
 ```
+
+The `alias` function allows you to map SQL results to typed Python values, while `func` provides type-safe SQL function calls. When combined, they enable you to write complex queries with proper type checking and automatic deserialization.
 

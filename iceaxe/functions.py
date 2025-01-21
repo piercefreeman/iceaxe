@@ -7,7 +7,11 @@ from typing import Any, Literal, Type, TypeVar, cast
 from iceaxe.base import (
     DBFieldClassDefinition,
 )
-from iceaxe.comparison import ComparisonBase
+from iceaxe.comparison import (
+    ComparisonBase,
+    ComparisonType,
+    FieldComparison,
+)
 from iceaxe.queries_str import QueryLiteral
 from iceaxe.sql_types import get_python_to_sql_mapping
 from iceaxe.typing import is_column, is_function_metadata
@@ -103,6 +107,50 @@ class FunctionMetadata(ComparisonBase):
         :return: A tuple of the SQL literal and an empty list of variables
         """
         return self.literal, []
+
+    def matches(self, query: Any) -> FieldComparison:
+        """
+        Creates a text search match operation (@@).
+
+        :param query: The tsquery to search for
+        :return: A field comparison object that resolves to a boolean
+
+        ```python {{sticky: True}}
+        # Match a tsvector against a tsquery
+        matches = func.to_tsvector('english', Article.content).matches(
+            func.to_tsquery('english', 'python')
+        )
+        ```
+        """
+        metadata = FunctionBuilder._column_to_metadata(query)
+
+        # Create a new FunctionMetadata for the @@ operation
+        match_metadata = FunctionMetadata(
+            literal=QueryLiteral(f"{self.literal} @@ {metadata.literal}"),
+            original_field=self.original_field,
+        )
+        # Return a FieldComparison that will be accepted by where()
+        return FieldComparison(
+            left=match_metadata, comparison=ComparisonType.EQ, right=True
+        )
+
+    def concat(self, other: Any) -> Any:
+        """
+        Concatenates two tsvectors.
+
+        :param other: The tsvector to concatenate with
+        :return: A function metadata object preserving the input type
+
+        ```python {{sticky: True}}
+        # Concatenate two tsvectors
+        combined = func.to_tsvector('english', Article.title).concat(
+            func.to_tsvector('english', Article.content)
+        )
+        ```
+        """
+        metadata = FunctionBuilder._column_to_metadata(other)
+        self.literal = QueryLiteral(f"{self.literal} || {metadata.literal}")
+        return self
 
 
 class FunctionBuilder:
@@ -579,7 +627,152 @@ class FunctionBuilder:
         metadata.literal = QueryLiteral(f"to_timestamp({metadata.literal}, '{format}')")
         return cast(datetime, metadata)
 
-    def _column_to_metadata(self, field: Any) -> FunctionMetadata:
+    def to_tsvector(self, language: str, field: T | list[T]) -> FunctionMetadata:
+        """
+        Creates a tsvector from one or more text fields for full-text search.
+
+        :param language: The language to use for text search (e.g., 'english')
+        :param field: A single text field or list of text fields to convert to tsvector
+        :return: A function metadata object that resolves to a tsvector
+
+        ```python {{sticky: True}}
+        # Create a tsvector from a single text field
+        vector = func.to_tsvector('english', Article.content)
+
+        # Create a tsvector from multiple text fields
+        vector = func.to_tsvector('english', [Article.title, Article.content, Article.summary])
+        ```
+        """
+        if isinstance(field, list):
+            if not field:
+                raise ValueError("Cannot create tsvector from empty list of fields")
+
+            # Start with the first field
+            result = self._column_to_metadata(field[0])
+            result.literal = QueryLiteral(
+                f"to_tsvector('{language}', {result.literal})"
+            )
+
+            # Concatenate remaining fields
+            for f in field[1:]:
+                metadata = self._column_to_metadata(f)
+                metadata.literal = QueryLiteral(
+                    f"to_tsvector('{language}', {metadata.literal})"
+                )
+                result.literal = QueryLiteral(f"{result.literal} || {metadata.literal}")
+
+            return result
+        else:
+            metadata = self._column_to_metadata(field)
+            metadata.literal = QueryLiteral(
+                f"to_tsvector('{language}', {metadata.literal})"
+            )
+            return metadata
+
+    def to_tsquery(self, language: str, query: str) -> FunctionMetadata:
+        """
+        Creates a tsquery for full-text search.
+
+        :param language: The language to use for text search (e.g., 'english')
+        :param query: The search query string
+        :return: A function metadata object that resolves to a tsquery
+
+        ```python {{sticky: True}}
+        # Create a tsquery from a search string
+        query = func.to_tsquery('english', 'python & programming')
+        ```
+        """
+        metadata = FunctionMetadata(
+            literal=QueryLiteral(f"to_tsquery('{language}', '{query}')"),
+            original_field=None,  # type: ignore
+        )
+        return metadata
+
+    def setweight(self, field: Any, weight: str) -> FunctionMetadata:
+        """
+        Sets the weight of a tsvector.
+
+        :param field: The tsvector to set weight for
+        :param weight: The weight to set (A, B, C, or D)
+        :return: A function metadata object for the weighted tsvector
+
+        ```python {{sticky: True}}
+        # Set weight for a tsvector
+        weighted = func.setweight(func.to_tsvector('english', Article.title), 'A')
+        ```
+        """
+        metadata = self._column_to_metadata(field)
+        metadata.literal = QueryLiteral(f"setweight({metadata.literal}, '{weight}')")
+        return metadata
+
+    def ts_rank(self, vector: Any, query: Any) -> FunctionMetadata:
+        """
+        Ranks search results.
+
+        :param vector: The tsvector to rank
+        :param query: The tsquery to rank against
+        :return: A function metadata object that resolves to a float
+
+        ```python {{sticky: True}}
+        # Rank search results
+        rank = func.ts_rank(
+            func.to_tsvector('english', Article.content),
+            func.to_tsquery('english', 'python')
+        )
+        ```
+        """
+        vector_metadata = self._column_to_metadata(vector)
+        query_metadata = self._column_to_metadata(query)
+        metadata = FunctionMetadata(
+            literal=QueryLiteral(
+                f"ts_rank({vector_metadata.literal}, {query_metadata.literal})"
+            ),
+            original_field=vector_metadata.original_field,
+        )
+        return metadata
+
+    def ts_headline(
+        self, language: str, field: T, query: T, options: str | None = None
+    ) -> str:
+        """
+        Generates search result highlights.
+
+        :param language: The language to use for text search
+        :param field: The text field to generate highlights for
+        :param query: The tsquery to highlight
+        :param options: Optional configuration string
+        :return: A function metadata object that resolves to a string
+
+        ```python {{sticky: True}}
+        # Generate search result highlights
+        headline = func.ts_headline(
+            'english',
+            Article.content,
+            func.to_tsquery('english', 'python'),
+            'StartSel=<mark>, StopSel=</mark>'
+        )
+        ```
+        """
+        field_metadata = self._column_to_metadata(field)
+        query_metadata = self._column_to_metadata(query)
+        if options:
+            metadata = FunctionMetadata(
+                literal=QueryLiteral(
+                    f"ts_headline('{language}', {field_metadata.literal}, {query_metadata.literal}, '{options}')"
+                ),
+                original_field=field_metadata.original_field,
+            )
+        else:
+            metadata = FunctionMetadata(
+                literal=QueryLiteral(
+                    f"ts_headline('{language}', {field_metadata.literal}, {query_metadata.literal})"
+                ),
+                original_field=field_metadata.original_field,
+            )
+        return cast(str, metadata)
+
+    @staticmethod
+    def _column_to_metadata(field: Any) -> FunctionMetadata:
         """
         Internal helper method to convert a field to FunctionMetadata.
         Handles both raw columns and nested function calls.
