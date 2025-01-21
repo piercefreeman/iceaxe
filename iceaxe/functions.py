@@ -122,9 +122,8 @@ class FunctionMetadata(ComparisonBase):
         )
         ```
         """
-        from iceaxe.functions import func
+        metadata = FunctionBuilder._column_to_metadata(query)
 
-        metadata = func._column_to_metadata(query)
         # Create a new FunctionMetadata for the @@ operation
         match_metadata = FunctionMetadata(
             literal=QueryLiteral(f"{self.literal} @@ {metadata.literal}"),
@@ -149,9 +148,7 @@ class FunctionMetadata(ComparisonBase):
         )
         ```
         """
-        from iceaxe.functions import func
-
-        metadata = func._column_to_metadata(other)
+        metadata = FunctionBuilder._column_to_metadata(other)
         self.literal = QueryLiteral(f"{self.literal} || {metadata.literal}")
         return self
 
@@ -751,7 +748,8 @@ class FunctionBuilder:
             )
         return cast(str, metadata)
 
-    def _column_to_metadata(self, field: Any) -> FunctionMetadata:
+    @staticmethod
+    def _column_to_metadata(field: Any) -> FunctionMetadata:
         """
         Internal helper method to convert a field to FunctionMetadata.
         Handles both raw columns and nested function calls.
