@@ -155,21 +155,6 @@ class FunctionMetadata(ComparisonBase):
         self.literal = QueryLiteral(f"{self.literal} || {metadata.literal}")
         return self
 
-    def as_(self, alias: str) -> Any:
-        """
-        Assigns an alias to the function result.
-
-        :param alias: The alias to assign
-        :return: A function metadata object with the alias set
-
-        ```python {{sticky: True}}
-        # Assign an alias to a function result
-        rank = func.ts_rank(vector, query).as_("rank")
-        ```
-        """
-        self.local_name = alias
-        return self
-
 
 class FunctionBuilder:
     """

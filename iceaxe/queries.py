@@ -465,6 +465,16 @@ class QueryBuilder(Generic[P, QueryType]):
                 self._select_fields.append(sql.select(field))
                 self._select_raw.append(field)
             elif is_alias(field):
+                # Handle alias case
+                if is_function_metadata(field.value):
+                    alias_value = field.value.literal
+                    self._alias_mappings[field.name] = field.value.literal
+                else:
+                    # For primitive types, just use the name as is
+                    alias_value = field.name
+                self._select_fields.append(
+                    QueryLiteral(f"{alias_value} AS {field.name}")
+                )
                 self._select_raw.append(field)
             elif is_function_metadata(field):
                 # Handle function metadata with or without alias
@@ -618,8 +628,8 @@ class QueryBuilder(Generic[P, QueryType]):
         elif is_function_metadata(field):
             field_token = field.literal
         elif isinstance(field, str):
-            # Check if this is a known alias
-            field_token = self._alias_mappings.get(field, QueryLiteral(field))
+            # Just use the string as-is for raw SQL queries
+            field_token = QueryLiteral(field)
         else:
             raise ValueError(f"Invalid order by field: {field}")
 

@@ -2,7 +2,7 @@ from typing import List, Literal, Optional, TypeVar, cast
 
 import pytest
 
-from iceaxe import Field, TableBase, func, select
+from iceaxe import Field, TableBase, alias, func, select
 from iceaxe.field import DBFieldInfo
 from iceaxe.postgres import LexemePriority, PostgresFullText
 from iceaxe.queries import QueryBuilder
@@ -171,9 +171,9 @@ async def test_weighted_text_search(indexed_db_connection: DBConnection):
     query = func.to_tsquery("english", "python & guide")
 
     results = await execute(
-        select((Article, func.ts_rank(vector, query).as_("rank")))
+        select((Article, alias("ts_rank", func.ts_rank(vector, query))))
         .where(vector.matches(query))
-        .order_by("rank", direction="DESC"),
+        .order_by("ts_rank", direction="DESC"),
         indexed_db_connection,
     )
     assert len(results) == 2
@@ -278,9 +278,9 @@ async def test_weight_priority_variants(indexed_db_connection: DBConnection):
     query = func.to_tsquery("english", "python & guide")
 
     results = await execute(
-        select((Article, func.ts_rank(vector, query).as_("rank")))
+        select((Article, alias("ts_rank", func.ts_rank(vector, query))))
         .where(vector.matches(query))
-        .order_by("rank", direction="DESC"),
+        .order_by("ts_rank", direction="DESC"),
         indexed_db_connection,
     )
 

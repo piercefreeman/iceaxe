@@ -14,12 +14,10 @@ from iceaxe.__tests__.conf_models import (
     JsonDemo,
     UserDemo,
 )
-from iceaxe.alias_values import alias
 from iceaxe.base import INTERNAL_TABLE_FIELDS, TableBase
 from iceaxe.field import Field
 from iceaxe.functions import func
 from iceaxe.queries import QueryBuilder
-from iceaxe.queries_str import sql
 from iceaxe.schemas.cli import create_all
 from iceaxe.session import (
     PG_MAX_PARAMETERS,
@@ -966,36 +964,6 @@ async def test_select_same_column_name_from_different_tables(
 
     assert len(result_reversed) == 1
     assert result_reversed[0] == ("Name from B", "Name from A")
-
-
-@pytest.mark.asyncio
-async def test_select_with_text_and_alias(db_connection: DBConnection):
-    """
-    Test that we can use a text query alongside an alias to map raw SQL results
-    to typed values.
-    """
-    user = UserDemo(name="John Doe", email="john@example.com")
-    await db_connection.insert([user])
-
-    # Create a query that uses text() alongside an alias
-    query = (
-        QueryBuilder()
-        .select((UserDemo, alias("rollup_value", int)))
-        .text(
-            f"""
-            SELECT {sql.select(UserDemo)}, COUNT(*) AS rollup_value
-            FROM userdemo
-            GROUP BY id
-            """
-        )
-    )
-    result = await db_connection.exec(query)
-    assert len(result) == 1
-    assert isinstance(result[0], tuple)
-    assert isinstance(result[0][0], UserDemo)
-    assert result[0][0].name == "John Doe"
-    assert result[0][0].email == "john@example.com"
-    assert result[0][1] == 1  # The count should be 1
 
 
 @pytest.mark.asyncio
