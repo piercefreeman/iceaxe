@@ -108,15 +108,55 @@ class FunctionMetadata(ComparisonBase):
         """
         return self.literal, []
 
-    def matches(self, query: Any) -> FieldComparison:
-        """
-        Creates a text search match operation (@@).
 
-        :param query: The tsquery to search for
+class TSQueryFunctionMetadata(FunctionMetadata):
+    """
+    Represents metadata specifically for tsquery operations in PostgreSQL.
+    This class provides methods that are only applicable to tsquery results.
+    """
+
+    def matches(self, vector: TSVectorFunctionMetadata) -> FieldComparison:
+        """
+        Creates a text search match operation (@@) between this tsquery and a tsvector.
+
+        :param vector: The tsvector to match against
         :return: A field comparison object that resolves to a boolean
 
         ```python {{sticky: True}}
-        # Match a tsvector against a tsquery
+        # Match a tsvector against this tsquery
+        matches = func.to_tsquery('english', 'python').matches(
+            func.to_tsvector('english', Article.content)
+        )
+        ```
+        """
+        metadata = FunctionBuilder._column_to_metadata(vector)
+
+        # Create a new FunctionMetadata for the @@ operation
+        match_metadata = FunctionMetadata(
+            literal=QueryLiteral(f"{metadata.literal} @@ {self.literal}"),
+            original_field=self.original_field,
+        )
+        # Return a FieldComparison that will be accepted by where()
+        return FieldComparison(
+            left=match_metadata, comparison=ComparisonType.EQ, right=True
+        )
+
+
+class TSVectorFunctionMetadata(FunctionMetadata):
+    """
+    Represents metadata specifically for tsvector operations in PostgreSQL.
+    This class provides methods that are only applicable to tsvector results.
+    """
+
+    def matches(self, query: TSQueryFunctionMetadata) -> FieldComparison:
+        """
+        Creates a text search match operation (@@) between this tsvector and a tsquery.
+
+        :param query: The tsquery to match against
+        :return: A field comparison object that resolves to a boolean
+
+        ```python {{sticky: True}}
+        # Match this tsvector against a tsquery
         matches = func.to_tsvector('english', Article.content).matches(
             func.to_tsquery('english', 'python')
         )
@@ -134,12 +174,12 @@ class FunctionMetadata(ComparisonBase):
             left=match_metadata, comparison=ComparisonType.EQ, right=True
         )
 
-    def concat(self, other: Any) -> Any:
+    def concat(self, other: TSVectorFunctionMetadata) -> TSVectorFunctionMetadata:
         """
         Concatenates two tsvectors.
 
         :param other: The tsvector to concatenate with
-        :return: A function metadata object preserving the input type
+        :return: A TSVectorFunctionMetadata object preserving the input type
 
         ```python {{sticky: True}}
         # Concatenate two tsvectors
@@ -627,13 +667,15 @@ class FunctionBuilder:
         metadata.literal = QueryLiteral(f"to_timestamp({metadata.literal}, '{format}')")
         return cast(datetime, metadata)
 
-    def to_tsvector(self, language: str, field: T | list[T]) -> FunctionMetadata:
+    def to_tsvector(
+        self, language: str, field: T | list[T]
+    ) -> TSVectorFunctionMetadata:
         """
         Creates a tsvector from one or more text fields for full-text search.
 
         :param language: The language to use for text search (e.g., 'english')
         :param field: A single text field or list of text fields to convert to tsvector
-        :return: A function metadata object that resolves to a tsvector
+        :return: A TSVectorFunctionMetadata object that resolves to a tsvector
 
         ```python {{sticky: True}}
         # Create a tsvector from a single text field
@@ -661,40 +703,47 @@ class FunctionBuilder:
                 )
                 result.literal = QueryLiteral(f"{result.literal} || {metadata.literal}")
 
-            return result
+            return TSVectorFunctionMetadata(
+                literal=result.literal,
+                original_field=result.original_field,
+                local_name=result.local_name,
+            )
         else:
             metadata = self._column_to_metadata(field)
             metadata.literal = QueryLiteral(
                 f"to_tsvector('{language}', {metadata.literal})"
             )
-            return metadata
+            return TSVectorFunctionMetadata(
+                literal=metadata.literal,
+                original_field=metadata.original_field,
+                local_name=metadata.local_name,
+            )
 
-    def to_tsquery(self, language: str, query: str) -> FunctionMetadata:
+    def to_tsquery(self, language: str, query: str) -> TSQueryFunctionMetadata:
         """
         Creates a tsquery for full-text search.
 
         :param language: The language to use for text search (e.g., 'english')
         :param query: The search query string
-        :return: A function metadata object that resolves to a tsquery
+        :return: A TSQueryFunctionMetadata object that resolves to a tsquery
 
         ```python {{sticky: True}}
         # Create a tsquery from a search string
         query = func.to_tsquery('english', 'python & programming')
         ```
         """
-        metadata = FunctionMetadata(
+        return TSQueryFunctionMetadata(
             literal=QueryLiteral(f"to_tsquery('{language}', '{query}')"),
             original_field=None,  # type: ignore
         )
-        return metadata
 
-    def setweight(self, field: Any, weight: str) -> FunctionMetadata:
+    def setweight(self, field: Any, weight: str) -> TSVectorFunctionMetadata:
         """
         Sets the weight of a tsvector.
 
         :param field: The tsvector to set weight for
         :param weight: The weight to set (A, B, C, or D)
-        :return: A function metadata object for the weighted tsvector
+        :return: A TSVectorFunctionMetadata object for the weighted tsvector
 
         ```python {{sticky: True}}
         # Set weight for a tsvector
@@ -703,7 +752,11 @@ class FunctionBuilder:
         """
         metadata = self._column_to_metadata(field)
         metadata.literal = QueryLiteral(f"setweight({metadata.literal}, '{weight}')")
-        return metadata
+        return TSVectorFunctionMetadata(
+            literal=metadata.literal,
+            original_field=metadata.original_field,
+            local_name=metadata.local_name,
+        )
 
     def ts_rank(self, vector: Any, query: Any) -> FunctionMetadata:
         """
