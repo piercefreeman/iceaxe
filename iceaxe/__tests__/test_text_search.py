@@ -22,10 +22,6 @@ class Article(TableBase):
         default=None, postgres_config=PostgresFullText(language="english", weight="C")
     )
 
-    async def save(self, db_connection: DBConnection) -> None:
-        """Save the article to the database."""
-        await db_connection.insert([self])
-
 
 @pytest.mark.asyncio
 async def test_basic_text_search(indexed_db_connection: DBConnection):
@@ -40,8 +36,8 @@ async def test_basic_text_search(indexed_db_connection: DBConnection):
         ),
         Article(id=3, title="Web Development", content="Building web apps with Python"),
     ]
-    for article in articles:
-        await article.save(indexed_db_connection)
+
+    await indexed_db_connection.insert(articles)
 
     # Search in title only
     title_vector = func.to_tsvector("english", Article.title)
@@ -71,8 +67,8 @@ async def test_complex_text_search(indexed_db_connection: DBConnection):
             id=3, title="JavaScript Basics", content="Learn programming with JavaScript"
         ),
     ]
-    for article in articles:
-        await article.save(indexed_db_connection)
+
+    await indexed_db_connection.insert(articles)
 
     # Test AND operator
     vector = func.to_tsvector("english", Article.title)
@@ -116,8 +112,8 @@ async def test_combined_field_search(indexed_db_connection: DBConnection):
             summary="Advanced Python concepts",
         ),
     ]
-    for article in articles:
-        await article.save(indexed_db_connection)
+
+    await indexed_db_connection.insert(articles)
 
     # Search across all fields using list syntax
     vector = func.to_tsvector(
@@ -163,8 +159,8 @@ async def test_weighted_text_search(indexed_db_connection: DBConnection):
             summary="Guide to programming",
         ),
     ]
-    for article in articles:
-        await article.save(indexed_db_connection)
+
+    await indexed_db_connection.insert(articles)
 
     # Search with weights
     vector = (
@@ -259,9 +255,7 @@ async def test_weight_priority_variants(indexed_db_connection: DBConnection):
         == "C"
     )
 
-    # Save and query using the original Article model to verify functionality
-    for article in articles:
-        await article.save(indexed_db_connection)
+    await indexed_db_connection.insert(articles)
 
     vector = (
         func.setweight(

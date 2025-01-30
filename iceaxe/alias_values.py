@@ -1,21 +1,19 @@
 from dataclasses import dataclass
 from typing import Generic, TypeVar, cast
 
-from iceaxe.functions import FunctionMetadata
-
 T = TypeVar("T")
 
 
 @dataclass(frozen=True, slots=True)
 class Alias(Generic[T]):
     name: str
-    value: T | FunctionMetadata
+    value: T
 
     def __str__(self):
         return self.name
 
 
-def alias(name: str, type: T | FunctionMetadata) -> T:
+def alias(name: str, type: T) -> T:
     """
     Creates an alias for a field in raw SQL queries, allowing for type-safe mapping of raw SQL results.
     This is particularly useful in two main scenarios:
@@ -23,7 +21,7 @@ def alias(name: str, type: T | FunctionMetadata) -> T:
     1. When using raw SQL queries with aliased columns:
     ```python
     # Map a COUNT(*) result to an integer
-    query = select((alias("user_count", int))).text(
+    query = select(alias("user_count", int)).text(
         "SELECT COUNT(*) AS user_count FROM users"
     )
 
