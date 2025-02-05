@@ -1,6 +1,16 @@
+from enum import StrEnum
 from typing import Literal
 
 from pydantic import BaseModel
+
+
+class LexemePriority(StrEnum):
+    """Enum representing text search lexeme priority weights in Postgres."""
+
+    HIGHEST = "A"
+    HIGH = "B"
+    LOW = "C"
+    LOWEST = "D"
 
 
 class PostgresFieldBase(BaseModel):
@@ -56,6 +66,42 @@ class PostgresTime(PostgresFieldBase):
         If False, maps to TIME WITHOUT TIME ZONE.
         Defaults to False.
 
+    """
+
+
+class PostgresFullText(PostgresFieldBase):
+    """
+    Extension to Python's string type that specifies additional Postgres-specific configuration
+    for full-text search. Used to customize the behavior of text search fields in Postgres.
+
+    ```python {{sticky: True}}
+    from iceaxe import TableBase, Field
+    from iceaxe.postgres import PostgresFullText, LexemePriority
+
+    class Article(TableBase):
+        id: int = Field(primary_key=True)
+        title: str = Field(postgres_config=PostgresFullText(
+            language="english",
+            weight=LexemePriority.HIGHEST  # or "A"
+        ))
+        content: str = Field(postgres_config=PostgresFullText(
+            language="english",
+            weight=LexemePriority.HIGH  # or "B"
+        ))
+    ```
+    """
+
+    language: str = "english"
+    """
+    The language to use for text search operations.
+    Defaults to 'english'.
+    """
+    weight: Literal["A", "B", "C", "D"] | LexemePriority = LexemePriority.HIGHEST
+    """
+    The weight to assign to matches in this column.
+    Can be specified either as a string literal ("A", "B", "C", "D") or using LexemePriority enum.
+    A/HIGHEST is highest priority, D/LOWEST is lowest priority.
+    Defaults to LexemePriority.HIGHEST (A).
     """
 
 

@@ -157,6 +157,9 @@ class QueryBuilder(Generic[P, QueryType]):
         ] = []
         self._select_aggregate_count = 0
 
+        # Alias tracking
+        self._alias_mappings: dict[str, QueryElementBase] = {}
+
         # Text
         self._text_query: str | None = None
         self._text_variables: list[Any] = []
@@ -462,20 +465,34 @@ class QueryBuilder(Generic[P, QueryType]):
                 self._select_fields.append(sql.select(field))
                 self._select_raw.append(field)
             elif is_alias(field):
-                # We don't actually add the alias to the selection query, assuming
-                # that it's captured in the raw query.
-                self._select_raw.append(field)
-            elif is_function_metadata(field):
-                # We need to handle func.* functions explicitly here versus delegating
-                # to a SQLGenerator because we need to own the local name aliasing logic
-                field.local_name = f"aggregate_{self._select_aggregate_count}"
-                local_name_token = QueryLiteral(field.local_name)
-
+                # Handle alias case
+                if is_function_metadata(field.value):
+                    alias_value = field.value.literal
+                    self._alias_mappings[field.name] = field.value.literal
+                else:
+                    # For primitive types, just use the name as is
+                    alias_value = field.name
                 self._select_fields.append(
-                    QueryLiteral(f"{field.literal} AS {local_name_token}")
+                    QueryLiteral(f"{alias_value} AS {field.name}")
                 )
                 self._select_raw.append(field)
-                self._select_aggregate_count += 1
+            elif is_function_metadata(field):
+                # Handle function metadata with or without alias
+                if field.local_name:
+                    # If there's an alias, use it and track the mapping
+                    self._select_fields.append(
+                        QueryLiteral(f"{field.literal} AS {field.local_name}")
+                    )
+                    self._alias_mappings[field.local_name] = field.literal
+                else:
+                    # If no alias, generate one and track the mapping
+                    field.local_name = f"aggregate_{self._select_aggregate_count}"
+                    self._select_fields.append(
+                        QueryLiteral(f"{field.literal} AS {field.local_name}")
+                    )
+                    self._alias_mappings[field.local_name] = field.literal
+                    self._select_aggregate_count += 1
+                self._select_raw.append(field)
 
     @allow_branching
     def update(self, model: Type[TableBase]) -> QueryBuilder[None, Literal["UPDATE"]]:
@@ -500,7 +517,7 @@ class QueryBuilder(Generic[P, QueryType]):
         return self  # type: ignore
 
     @allow_branching
-    def where(self, *conditions: bool):
+    def where(self, *conditions: FieldComparison | FieldComparisonGroup | bool):
         """
         Adds WHERE conditions to filter the query results. Multiple conditions are combined with AND.
         For OR conditions, use the `or_` function.
@@ -591,17 +608,28 @@ class QueryBuilder(Generic[P, QueryType]):
             .group_by(User.name)
             .order_by(func.count(Post.id), "DESC")
         )
+
+        # Sort by aliased column
+        query = (
+            QueryBuilder()
+            .select((User, func.count(Post.id).as_("post_count")))
+            .join(Post, Post.user_id == User.id)
+            .group_by(User.name)
+            .order_by("post_count", "DESC")
+        )
         ```
 
-        :param field: The field to sort by (must be a column or function)
+        :param field: The field to sort by (can be a column, function, or string for aliased columns)
         :param direction: The sort direction, either "ASC" or "DESC"
         :return: The QueryBuilder instance for method chaining
-
         """
         if is_column(field):
             field_token, _ = field.to_query()
         elif is_function_metadata(field):
             field_token = field.literal
+        elif isinstance(field, str):
+            # Just use the string as-is for raw SQL queries
+            field_token = QueryLiteral(field)
         else:
             raise ValueError(f"Invalid order by field: {field}")
 

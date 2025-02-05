@@ -18,13 +18,14 @@ async def db_connection():
         )
     )
 
-    # Clear the old table from previous runs
-    await conn.conn.fetch("DROP TABLE IF EXISTS artifactdemo CASCADE")
-    await conn.conn.fetch("DROP TABLE IF EXISTS userdemo CASCADE")
-    await conn.conn.fetch("DROP TABLE IF EXISTS complexdemo CASCADE")
+    # Drop all tables first to ensure clean state
+    await conn.conn.execute("DROP TABLE IF EXISTS artifactdemo CASCADE")
+    await conn.conn.execute("DROP TABLE IF EXISTS userdemo CASCADE")
+    await conn.conn.execute("DROP TABLE IF EXISTS complexdemo CASCADE")
+    await conn.conn.execute("DROP TABLE IF EXISTS article CASCADE")
 
-    # Create a test table
-    await conn.conn.fetch("""
+    # Create tables
+    await conn.conn.execute("""
         CREATE TABLE IF NOT EXISTS userdemo (
             id SERIAL PRIMARY KEY,
             name TEXT,
@@ -32,38 +33,69 @@ async def db_connection():
         )
     """)
 
-    await conn.conn.fetch("""
+    await conn.conn.execute("""
         CREATE TABLE IF NOT EXISTS artifactdemo (
             id SERIAL PRIMARY KEY,
             title TEXT,
             user_id INT REFERENCES userdemo(id)
         )
-        """)
+    """)
 
-    await conn.conn.fetch("""
+    await conn.conn.execute("""
         CREATE TABLE IF NOT EXISTS complexdemo (
             id SERIAL PRIMARY KEY,
             string_list TEXT[],
             json_data JSON
         )
-        """)
+    """)
 
+    await conn.conn.execute("""
+        CREATE TABLE IF NOT EXISTS article (
+            id SERIAL PRIMARY KEY,
+            title TEXT,
+            content TEXT,
+            summary TEXT
+        )
+    """)
+
+    # Create each index separately to handle errors better
     yield conn
-    # Drop the test table after all tests
+
+    # Drop all tables after tests
+    await conn.conn.execute("DROP TABLE IF EXISTS artifactdemo CASCADE")
+    await conn.conn.execute("DROP TABLE IF EXISTS userdemo CASCADE")
+    await conn.conn.execute("DROP TABLE IF EXISTS complexdemo CASCADE")
+    await conn.conn.execute("DROP TABLE IF EXISTS article CASCADE")
     await conn.conn.close()
+
+
+@pytest_asyncio.fixture()
+async def indexed_db_connection(db_connection: DBConnection):
+    await db_connection.conn.execute(
+        "CREATE INDEX IF NOT EXISTS article_title_tsv_idx ON article USING GIN (to_tsvector('english', title))"
+    )
+    await db_connection.conn.execute(
+        "CREATE INDEX IF NOT EXISTS article_content_tsv_idx ON article USING GIN (to_tsvector('english', content))"
+    )
+    await db_connection.conn.execute(
+        "CREATE INDEX IF NOT EXISTS article_summary_tsv_idx ON article USING GIN (to_tsvector('english', summary))"
+    )
+
+    yield db_connection
 
 
 @pytest_asyncio.fixture(autouse=True)
 async def clear_table(db_connection):
-    await db_connection.conn.fetch("DELETE FROM userdemo")
-    await db_connection.conn.fetch("ALTER SEQUENCE userdemo_id_seq RESTART WITH 1")
+    # Clear all tables and reset sequences
+    await db_connection.conn.execute(
+        "TRUNCATE TABLE userdemo, article RESTART IDENTITY CASCADE"
+    )
 
 
 @pytest_asyncio.fixture
 async def clear_all_database_objects(db_connection: DBConnection):
     """
     Clear all database objects.
-
     """
     # Step 1: Drop all tables in the public schema
     await db_connection.conn.execute(
