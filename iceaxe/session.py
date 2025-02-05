@@ -37,6 +37,8 @@ TableType = TypeVar("TableType", bound=TableBase)
 # PostgreSQL has a limit of 32767 parameters per query (Short.MAX_VALUE)
 PG_MAX_PARAMETERS = 32767
 
+TYPE_CACHE = {}
+
 
 class DBConnection:
     """
@@ -101,6 +103,89 @@ class DBConnection:
         self.obj_to_primary_key: dict[str, str | None] = {}
         self.in_transaction = False
         self.modification_tracker = ModificationTracker(uncommitted_verbosity)
+
+    async def initialize_types(self, timeout: float = 60.0) -> None:
+        """
+        Introspect and register PostgreSQL type codecs on this connection,
+        caching the result globally using the connection's DB URL as a key. These types
+        are unlikely to change in the lifetime of a Python process, so this is typically
+        safe to do automatically.
+
+        This method should be called once per connection so we can leverage our own cache. If
+        asyncpg is called directly on a new connection, it will result in its own duplicate
+        type introspection call.
+
+        """
+        global TYPE_CACHE
+
+        if not self.conn._protocol:
+            LOGGER.warning(
+                "No protocol found for connection during type introspection, will fall back to asyncpg"
+            )
+            return
+
+        # Determine a unique key for this connection.
+        db_url = self.get_dsn()
+
+        # If we've already cached the type information for this DB URL, just register it.
+        if db_url in TYPE_CACHE:
+            self.conn._protocol.get_settings().register_data_types(TYPE_CACHE[db_url])
+            return
+
+        # Get the connection settings object (this is where type codecs are registered).
+        settings = self.conn._protocol.get_settings()
+
+        # Query PostgreSQL to get all type OIDs from non-system schemas.
+        rows = await self.conn.fetch(
+            """
+            SELECT t.oid
+            FROM pg_type t
+            JOIN pg_namespace n ON t.typnamespace = n.oid
+            WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+            """
+        )
+        # Build a set of type OIDs.
+        typeoids = {row["oid"] for row in rows}
+
+        # Introspect types – this call will recursively determine the PostgreSQL types needed.
+        types, intro_stmt = await self.conn._introspect_types(typeoids, timeout)
+
+        # Register the introspected types with the connection's settings.
+        settings.register_data_types(types)
+
+        # Cache the types globally so that future connections using the same DB URL
+        # can simply register the cached codecs.
+        TYPE_CACHE[db_url] = types
+
+    def get_dsn(self) -> str:
+        """
+        Get the DSN (Data Source Name) string for this connection.
+
+        :return: DSN string in the format 'postgresql://user:password@host:port/dbname'
+        """
+        params = self.conn._params
+        addr = self.conn._addr
+
+        # Build the DSN string with all available parameters
+        dsn_parts = ["postgresql://"]
+
+        # Add user/password if available
+        if params.user:
+            dsn_parts.append(params.user)
+            if params.password:
+                dsn_parts.append(f":{params.password}")
+            dsn_parts.append("@")
+
+        # Add host/port
+        dsn_parts.append(addr[0])
+        if addr[1]:
+            dsn_parts.append(f":{addr[1]}")
+
+        # Add database name
+        if params.database:
+            dsn_parts.append(f"/{params.database}")
+
+        return "".join(dsn_parts)
 
     @asynccontextmanager
     async def transaction(self):
