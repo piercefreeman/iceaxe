@@ -758,7 +758,7 @@ class FunctionBuilder:
             local_name=metadata.local_name,
         )
 
-    def ts_rank(self, vector: Any, query: Any) -> FunctionMetadata:
+    def ts_rank(self, vector: Any, query: Any) -> int:
         """
         Ranks search results.
 
@@ -782,7 +782,7 @@ class FunctionBuilder:
             ),
             original_field=vector_metadata.original_field,
         )
-        return metadata
+        return cast(int, metadata)
 
     def ts_headline(
         self, language: str, field: T, query: T, options: str | None = None

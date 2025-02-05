@@ -1,21 +1,19 @@
 from dataclasses import dataclass
 from typing import Generic, TypeVar, cast
 
-from iceaxe.functions import FunctionMetadata
-
 T = TypeVar("T")
 
 
 @dataclass(frozen=True, slots=True)
 class Alias(Generic[T]):
     name: str
-    value: T | FunctionMetadata
+    value: T
 
     def __str__(self):
         return self.name
 
 
-def alias(name: str, type: T | FunctionMetadata) -> T:
+def alias(name: str, type: T) -> T:
     """
     Creates an alias for a field in raw SQL queries, allowing for type-safe mapping of raw SQL results.
     This is particularly useful in two main scenarios:
