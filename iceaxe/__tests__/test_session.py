@@ -1,10 +1,11 @@
 from contextlib import asynccontextmanager
 from enum import StrEnum
-from typing import Type
-from unittest.mock import AsyncMock
+from typing import Any, Type
+from unittest.mock import AsyncMock, patch
 
 import asyncpg
 import pytest
+from asyncpg.connection import Connection
 
 from iceaxe.__tests__.conf_models import (
     ArtifactDemo,
@@ -21,6 +22,7 @@ from iceaxe.queries import QueryBuilder
 from iceaxe.schemas.cli import create_all
 from iceaxe.session import (
     PG_MAX_PARAMETERS,
+    TYPE_CACHE,
     DBConnection,
 )
 from iceaxe.typing import column
@@ -1351,3 +1353,127 @@ async def test_batch_upsert_multiple_with_real_db(db_connection: DBConnection):
     # Check that inserts worked
     assert db_result[2]["name"] == "User 3"
     assert db_result[3]["name"] == "User 4"
+
+
+@pytest.mark.asyncio
+async def test_initialize_types_caching():
+    # Clear the global cache for isolation.
+    TYPE_CACHE.clear()
+
+    # Define a sample enum and model that require type introspection.
+    class StatusEnum(StrEnum):
+        ACTIVE = "active"
+        INACTIVE = "inactive"
+        PENDING = "pending"
+
+    class ComplexTypeDemo(TableBase):
+        id: int = Field(primary_key=True)
+        status: StatusEnum
+        tags: list[str]
+        metadata: dict[Any, Any] = Field(is_json=True)
+
+    # Establish the first connection.
+    conn1 = await asyncpg.connect(
+        host="localhost",
+        port=5438,
+        user="iceaxe",
+        password="mysecretpassword",
+        database="iceaxe_test_db",
+    )
+    db1 = DBConnection(conn1)
+
+    # Prepare the database schema.
+    await db1.conn.execute("DROP TYPE IF EXISTS statusenum CASCADE")
+    await db1.conn.execute("DROP TABLE IF EXISTS complextypedemo")
+    await create_all(db1, [ComplexTypeDemo])
+
+    # Save the original method.
+    original_introspect = Connection._introspect_types
+
+    # Default value
+    introspect_wrapper_call_count = 0
+
+    # Define a wrapper that counts calls and then calls through.
+    async def introspect_wrapper(self, types_with_missing_codecs, timeout):
+        nonlocal introspect_wrapper_call_count
+        introspect_wrapper_call_count += 1
+        return await original_introspect(self, types_with_missing_codecs, timeout)
+
+    # Patch the _introspect_types method on the Connection class.
+    with patch.object(Connection, "_introspect_types", new=introspect_wrapper):
+        # For the first connection, initialize types.
+        await db1.initialize_types()
+        # Verify that introspection was called.
+        assert introspect_wrapper_call_count == 1
+
+        # Insert test data via the first connection.
+        demo1 = ComplexTypeDemo(
+            id=1,
+            status=StatusEnum.ACTIVE,
+            tags=["test", "demo"],
+            metadata={"version": 1},
+        )
+        await db1.insert([demo1])
+
+        # Create a second connection to the same database.
+        conn2 = await asyncpg.connect(
+            host="localhost",
+            port=5438,
+            user="iceaxe",
+            password="mysecretpassword",
+            database="iceaxe_test_db",
+        )
+        db2 = DBConnection(conn2)
+
+        # For the second connection, initializing types should use the cache.
+        await db2.initialize_types()
+
+        # The call count should remain unchanged.
+        assert introspect_wrapper_call_count == 1
+
+        # Verify that we can query the inserted record via the second connection.
+        results = await db2.exec(
+            QueryBuilder().select(ComplexTypeDemo).order_by(ComplexTypeDemo.id, "ASC")
+        )
+        assert len(results) == 1
+        assert results[0].status == StatusEnum.ACTIVE
+
+        # Insert additional data via the second connection.
+        demo2 = ComplexTypeDemo(
+            id=2,
+            status=StatusEnum.PENDING,
+            tags=["test2", "demo2"],
+            metadata={"version": 2},
+        )
+        await db2.insert([demo2])
+
+        # Retrieve and verify data from both connections.
+        result1 = await db1.exec(
+            QueryBuilder().select(ComplexTypeDemo).order_by(ComplexTypeDemo.id, "ASC")
+        )
+        result2 = await db2.exec(
+            QueryBuilder().select(ComplexTypeDemo).order_by(ComplexTypeDemo.id, "ASC")
+        )
+
+        assert len(result1) == 2
+        assert len(result2) == 2
+        assert result1[0].status == StatusEnum.ACTIVE
+        assert result1[1].status == StatusEnum.PENDING
+        assert result2[0].tags == ["test", "demo"]
+        assert result2[1].tags == ["test2", "demo2"]
+
+    await conn2.close()
+    await conn1.close()
+
+
+@pytest.mark.asyncio
+async def test_get_dsn(db_connection: DBConnection):
+    """
+    Test that get_dsn correctly formats the connection parameters into a DSN string.
+    """
+    dsn = db_connection.get_dsn()
+    assert dsn.startswith("postgresql://")
+    assert "iceaxe" in dsn
+    assert "localhost" in dsn
+    assert "5438" in dsn
+    assert "iceaxe_test_db" in dsn
