@@ -25,6 +25,8 @@ async def get_db_connection(
     This dependency:
     - Creates a new PostgreSQL connection using the provided configuration
     - Wraps it in a DBConnection for ORM functionality
+    - Initializes the connection's type cache to support enums without per-connection
+      type introspection
     - Automatically closes the connection when done
     - Integrates with Mountaineer's dependency injection system
 
@@ -53,9 +55,12 @@ async def get_db_connection(
         password=config.POSTGRES_PASSWORD,
         database=config.POSTGRES_DB,
     )
+
     connection = DBConnection(
         conn, uncommitted_verbosity=config.ICEAXE_UNCOMMITTED_VERBOSITY
     )
+    await connection.initialize_types()
+
     try:
         yield connection
     finally:
