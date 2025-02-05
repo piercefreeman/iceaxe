@@ -2,7 +2,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import asyncpg
 import pytest
-from mountaineer import CoreDependencies
 
 from iceaxe.mountaineer.config import DatabaseConfig
 from iceaxe.mountaineer.dependencies.core import get_db_connection
@@ -10,12 +9,10 @@ from iceaxe.session import DBConnection
 
 
 @pytest.fixture(autouse=True)
-def mock_db_connect():
-    conn = AsyncMock(spec=asyncpg.Connection)
-    conn.close = AsyncMock()
-
+def mock_db_connect(mock_connection: AsyncMock):
     with patch("asyncpg.connect", new_callable=AsyncMock) as mock:
-        mock.return_value = conn
+        mock.return_value = mock_connection
+
         yield mock
 
 
@@ -34,6 +31,15 @@ def mock_config():
 def mock_connection():
     conn = AsyncMock(spec=asyncpg.Connection)
     conn.close = AsyncMock()
+
+    # We need to populate the internal dsn parameters like the real query
+    conn._addr = ("test-host", 5432)
+    conn._params.user = "test-user"
+    conn._params.password = "test-pass"
+    conn._params.database = "test-db"
+
+    conn._introspect_types.return_value = (MagicMock(), MagicMock())
+
     return conn
 
 
@@ -43,9 +49,6 @@ async def test_get_db_connection_closes_after_yield(
     mock_connection: AsyncMock,
     mock_db_connect: AsyncMock,
 ):
-    mock_get_config = MagicMock(return_value=mock_config)
-    CoreDependencies.get_config_with_type = mock_get_config
-
     mock_db_connect.return_value = mock_connection
 
     # Get the generator
