@@ -1,12 +1,7 @@
-from setuptools import setup, Extension
+from setuptools import setup
 from Cython.Build import cythonize
 
 setup(
     name="iceaxe",
-    ext_modules=cythonize(
-        [
-            Extension("iceaxe.session_optimized", ["iceaxe/session_optimized.pyx"]),
-        ],
-        compiler_directives={'language_level': "3"}
-    )
+    ext_modules=cythonize("iceaxe/**/*.pyx", annotate=True, language_level="3"),
 )
