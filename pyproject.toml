@@ -10,6 +10,7 @@ python = "^3.11"
 asyncpg = "^0.30.0"
 pydantic = "^2.9.2"
 rich = "^13.9.2"
+typing-inspection = "^0.4.0"
 
 
 [tool.poetry.group.dev.dependencies]
