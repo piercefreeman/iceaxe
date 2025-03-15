@@ -1,5 +1,10 @@
 # iceaxe
 
+![Iceaxe Logo](https://raw.githubusercontent.com/piercefreeman/iceaxe/main/media/header.png)
+
+![PyPI - Python Version](https://img.shields.io/pypi/pyversions/iceaxe)
+[![Test status](https://github.com/piercefreeman/iceaxe/actions/workflows/test.yml/badge.svg)](https://github.com/piercefreeman/iceaxe/actions)
+
 A modern, fast ORM for Python. We have the following goals:
 
 - 🏎️ **Performance**: We want to exceed or match the fastest ORMs in Python. We want our ORM
@@ -11,7 +16,7 @@ expect in Python and it should bidirectionally sync to the database.
 vanilla SELECT/INSERT/UPDATEs. These should be natively supported by your ORM. If you're writing _really_
 complex queries, these are better done by hand so you can see exactly what SQL will be run.
 
-Iceaxe is in early alpha. It's also an independent project. It's compatible with the [Mountaineer](https://github.com/piercefreeman/mountaineer) ecosystem, but you can use it in whatever
+Iceaxe is used in production at several companies. It's also an independent project. It's compatible with the [Mountaineer](https://github.com/piercefreeman/mountaineer) ecosystem, but you can use it in whatever
 project and web framework you're using.
 
 ## Installation
