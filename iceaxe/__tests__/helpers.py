@@ -144,6 +144,9 @@ def create_pyright_config():
         "reportUnknownMemberType": False,
         "reportUnknownArgumentType": False,
         "reportMissingParameterType": False,
+        "extraPaths": [os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))],
+        "reportAttributeAccessIssue": True,
+        "reportArgumentType": True,
     }
 
 
