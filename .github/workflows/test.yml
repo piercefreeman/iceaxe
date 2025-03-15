@@ -77,13 +77,6 @@ jobs:
           find . -type f -name "*.o" -delete
           find . -type f -name "*.c" -delete
 
-      - name: Update version in pyproject.toml
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: |
-          VERSION=${GITHUB_REF#refs/tags/v}
-          poetry version $VERSION
-        shell: bash
-
       - name: Set up QEMU
         if: runner.os == 'Linux'
         uses: docker/setup-qemu-action@v3
@@ -92,7 +85,7 @@ jobs:
 
       - name: Build SDist
         if: matrix.os == 'ubuntu-latest'
-        run: poetry build --format sdist
+        run: uv build --sdist
 
       - name: Build wheels
         uses: pypa/cibuildwheel@v2.16.5

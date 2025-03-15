@@ -1,6 +1,6 @@
 [project]
 name = "iceaxe"
-version = "0.1.0"
+version = "0.5.4"
 description = "A modern, fast ORM for Python."
 readme = "README.md"
 authors = [{ name = "Pierce Freeman", email = "pierce@freeman.vc" }]
