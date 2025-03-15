@@ -21,6 +21,7 @@ mypy = "^1.11.2"
 pyright = "^1.1.383"
 mountaineer = "^0.6.0"
 pyinstrument = "^4.7.3"
+pydantic = {extras = ["email"], version = "^2.10.6"}
 
 [build-system]
 requires = ["poetry-core>=1.0.0", "cython>=3.0.0", "setuptools>=71.1.0"]
