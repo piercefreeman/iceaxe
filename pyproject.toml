@@ -30,6 +30,10 @@ py-modules = ["iceaxe"]
 packages = ["iceaxe"]
 include = ["iceaxe/*.pyx"]
 
+[tool.pyright]
+venvPath = "."
+venv = ".venv"
+
 [tool.mypy]
 warn_return_any = true
 warn_unused_configs = true
