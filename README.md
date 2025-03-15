@@ -26,7 +26,7 @@ To auto-optimize your self hosted Postgres install, check out our new [autopg](h
 If you're using poetry to manage your dependencies:
 
 ```bash
-poetry add iceaxe
+uv add iceaxe
 ```
 
 Otherwise install with pip:
@@ -227,7 +227,7 @@ network connections in the first place.
 We have basic benchmarking tests in the `__tests__/benchmarks` directory. To run them, you'll need to execute the pytest suite:
 
 ```bash
-poetry run pytest -m integration_tests
+uv run pytest -m integration_tests
 ```
 
 Current benchmarking as of October 11 2024 is:
@@ -240,8 +240,8 @@ Current benchmarking as of October 11 2024 is:
 ## Development
 
 If you update your Cython implementation during development, you'll need to re-compile the Cython code. This can be done with
-a simple poetry install. Poetry is set up to create a dynamic `setup.py` based on our `build.py` definition.
+a simple uv sync.
 
 ```bash
-poetry install
+uv sync
 ```

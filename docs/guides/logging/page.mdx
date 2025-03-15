@@ -7,13 +7,13 @@ SQL queries that are actually sent to your database. You can set the `ICEAXE_LOG
 variable to `DEBUG` to enable verbose logging:
 
 ```bash
-ICEAXE_LOG_LEVEL=DEBUG poetry run runserver
+ICEAXE_LOG_LEVEL=DEBUG uv run runserver
 ```
 
 This results in a lot of output, so you may want to pipe it to a file:
 
 ```bash
-ICEAXE_LOG_LEVEL=DEBUG poetry run runserver > debug.log
+ICEAXE_LOG_LEVEL=DEBUG uv run runserver > debug.log
 ```
 
 Each entry in the log will be a JSON formatted, single-lined
