@@ -19,6 +19,8 @@ complex queries, these are better done by hand so you can see exactly what SQL w
 Iceaxe is used in production at several companies. It's also an independent project. It's compatible with the [Mountaineer](https://github.com/piercefreeman/mountaineer) ecosystem, but you can use it in whatever
 project and web framework you're using.
 
+For comprehensive documentation, visit [https://mountaineer.sh/iceaxe](https://mountaineer.sh/iceaxe).
+
 To auto-optimize your self hosted Postgres install, check out our new [autopg](https://github.com/piercefreeman/autopg) project.
 
 ## Installation
