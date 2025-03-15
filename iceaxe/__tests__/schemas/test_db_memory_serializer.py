@@ -1,14 +1,15 @@
 from datetime import date, datetime, time, timedelta
 from enum import Enum, IntEnum, StrEnum
-from typing import Generic, Sequence, TypeVar
+from typing import Annotated, Generic, Sequence, TypeVar
 from unittest.mock import ANY
 from uuid import UUID
 
 import pytest
-from pydantic import create_model
+from pydantic import EmailStr, create_model
 from pydantic.fields import FieldInfo
 
 from iceaxe import Field, TableBase
+from iceaxe.__tests__.conf_models import AnnotatedTypesModel
 from iceaxe.base import IndexConstraint, UniqueConstraint
 from iceaxe.field import DBFieldInfo
 from iceaxe.postgres import PostgresDateTime, PostgresForeignKey, PostgresTime
@@ -1461,3 +1462,70 @@ def test_foreign_key_actions():
     assert fk_constraint.foreign_key_constraint.target_columns == frozenset({"id"})
     assert fk_constraint.foreign_key_constraint.on_delete == "CASCADE"
     assert fk_constraint.foreign_key_constraint.on_update == "CASCADE"
+
+
+@pytest.mark.asyncio
+async def test_annotated_types():
+    """
+    Test that Annotated types are correctly handled by the serializer.
+    This tests direct pydantic types.
+    """
+    migrator = DatabaseMemorySerializer()
+    db_objects = list(migrator.delegate([AnnotatedTypesModel]))
+
+    # Extract all columns for verification
+    columns = [obj for obj, _ in db_objects if isinstance(obj, DBColumn)]
+
+    # Verify direct pydantic types
+    email_col = next(c for c in columns if c.column_name == "email")
+    assert email_col.column_type == ColumnType.VARCHAR
+
+    url_col = next(c for c in columns if c.column_name == "url")
+    assert url_col.column_type == ColumnType.VARCHAR
+
+    value_col = next(c for c in columns if c.column_name == "value")
+    assert value_col.column_type == ColumnType.INTEGER
+
+
+def test_handle_column_type_annotated():
+    """
+    Test the handle_column_type method directly with Annotated types.
+    """
+    database_handler = DatabaseHandler()
+
+    # Create test models with the types we want to test
+    class TestEmailStr(TableBase):
+        email: EmailStr = Field()
+
+    class TestAnnotatedEmail(TableBase):
+        email: Annotated[str, EmailStr] = Field()
+
+    class TestNestedAnnotated(TableBase):
+        nested: Annotated[Annotated[int, "metadata1"], "metadata2"] = Field()
+
+    # Test EmailStr directly
+    type_declaration = database_handler.handle_column_type(
+        "email",
+        TestEmailStr.model_fields["email"],
+        TestEmailStr,
+    )
+    assert type_declaration.primitive_type == ColumnType.VARCHAR
+    assert type_declaration.is_list == False
+
+    # Test Annotated[str, EmailStr]
+    type_declaration = database_handler.handle_column_type(
+        "email",
+        TestAnnotatedEmail.model_fields["email"],
+        TestAnnotatedEmail,
+    )
+    assert type_declaration.primitive_type == ColumnType.VARCHAR
+    assert type_declaration.is_list == False
+
+    # Test nested Annotated type
+    type_declaration = database_handler.handle_column_type(
+        "nested",
+        TestNestedAnnotated.model_fields["nested"],
+        TestNestedAnnotated,
+    )
+    assert type_declaration.primitive_type == ColumnType.INTEGER
+    assert type_declaration.is_list == False

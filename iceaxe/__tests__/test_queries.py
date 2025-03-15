@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Literal
 import pytest
 
 from iceaxe.__tests__.conf_models import (
+    AnnotatedTypesModel,
     ArtifactDemo,
     Employee,
     FunctionDemoModel,
@@ -603,3 +604,74 @@ def test_group_by_with_function():
         'SELECT date_trunc(\'month\', "functiondemomodel"."created_at") AS aggregate_0, count("functiondemomodel"."id") AS aggregate_1 FROM "functiondemomodel" GROUP BY date_trunc(\'month\', "functiondemomodel"."created_at")',
         [],
     )
+
+
+def test_annotated_types_in_queries():
+    """
+    Test that Annotated types work correctly in queries.
+    """
+    # Test selecting the entire model with Annotated fields
+    query = select(AnnotatedTypesModel)
+    sql, params = query.build()
+
+    assert "annotatedtypesmodel" in sql
+    assert "email" in sql
+    assert "url" in sql
+    assert "value" in sql
+    assert params == []
+
+    # Test where clause with Annotated field
+    query = select(AnnotatedTypesModel).where(
+        AnnotatedTypesModel.email == "test@example.com"
+    )
+    sql, params = query.build()
+
+    assert 'WHERE "annotatedtypesmodel"."email" = $1' in sql
+    assert params == ["test@example.com"]
+
+    # Test where clause with PositiveInt field
+    query = select(AnnotatedTypesModel).where(AnnotatedTypesModel.value > 10)
+    sql, params = query.build()
+
+    assert 'WHERE "annotatedtypesmodel"."value" > $1' in sql
+    assert params == [10]
+
+
+@pytest.mark.parametrize(
+    "id, email, url, value, expected_error, expected_match",
+    [
+        # Invalid email
+        (1, "not-an-email", None, 10, ValueError, "value is not a valid email address"),
+        # Value must be positive - conint(gt=0) validation happens at the Pydantic level
+        (1, "test@example.com", None, 0, ValueError, "Input should be greater than 0"),
+        # Value must be an integer - this raises a ValidationError, not TypeError
+        (
+            1,
+            "test@example.com",
+            None,
+            "not-an-int",
+            ValueError,
+            "Input should be a valid integer",
+        ),
+    ],
+)
+def test_annotated_types_validation(
+    id, email, url, value, expected_error, expected_match
+):
+    """
+    Test that validation works for Annotated types.
+    """
+    from pydantic import ValidationError
+
+    # Test validation errors
+    if expected_match:
+        with pytest.raises(ValidationError, match=expected_match):
+            AnnotatedTypesModel(id=id, email=email, url=url, value=value)
+    else:
+        with pytest.raises(ValidationError):
+            AnnotatedTypesModel(id=id, email=email, url=url, value=value)
+
+    # Test that valid values work
+    model = AnnotatedTypesModel(id=1, email="test@example.com", url=None, value=10)
+    assert model.email == "test@example.com"
+    assert model.value == 10

@@ -3,6 +3,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
+from pydantic import EmailStr, HttpUrl, PositiveInt
 from pyinstrument import Profiler
 
 from iceaxe.base import Field, TableBase, UniqueConstraint
@@ -114,6 +115,18 @@ class JsonDemo(TableBase):
     unique_val: str
 
     table_args = [UniqueConstraint(columns=["unique_val"])]
+
+
+# Model for testing Annotated types
+class AnnotatedTypesModel(TableBase):
+    """Model for testing various Annotated types."""
+
+    id: int = Field(primary_key=True)
+
+    # Direct pydantic types
+    email: EmailStr
+    url: HttpUrl | None
+    value: PositiveInt  # PositiveInt
 
 
 @contextmanager
