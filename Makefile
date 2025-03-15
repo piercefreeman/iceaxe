@@ -23,19 +23,19 @@ lint-validation: lint-validation-iceaxe
 # Testing target
 test: test-iceaxe
 
-# Install all sub-project dependencies with poetry
+# Install all sub-project dependencies with uv
 install-deps: install-deps-iceaxe
 
 install-deps-iceaxe:
 	@echo "Installing dependencies for $(ICEAXE)..."
-	@(cd $(ICEAXE) && poetry install)
+	@(cd $(ICEAXE) && uv sync)
 
-# Clean the current poetry.lock files, useful for remote CI machines
+# Clean the current uv.lock files, useful for remote CI machines
 # where we're running on a different base architecture than when
 # developing locally
-clean-poetry-lock:
-	@echo "Cleaning poetry.lock files..."
-	@rm -f $(ICEAXE)/poetry.lock
+clean-uv-lock:
+	@echo "Cleaning uv.lock files..."
+	@rm -f $(ICEAXE)/uv.lock
 
 # Standard linting - local development, with fixing enabled
 lint-iceaxe:
@@ -59,25 +59,25 @@ test-iceaxe:
 
 define test-common
 	echo "Running tests for $(2)..."
-	@(cd $(1) && poetry run pytest -W error -vv $(test-args) $(2))
+	@(cd $(1) && uv run pytest -W error -vv $(test-args) $(2))
 endef
 
 define lint-common
 	echo "Running linting for $(2)..."
-	@(cd $(1) && poetry run ruff format $(2))
-	@(cd $(1) && poetry run ruff check --fix $(2))
+	@(cd $(1) && uv run ruff format $(2))
+	@(cd $(1) && uv run ruff check --fix $(2))
 	echo "Running pyright for $(2)..."
-	@(cd $(1) && poetry run pyright $(2))
+	@(cd $(1) && uv run pyright $(2))
 endef
 
 define lint-validation-common
 	echo "Running lint validation for $(2)..."
-	@(cd $(1) && poetry run ruff format --check $(2))
-	@(cd $(1) && poetry run ruff check $(2))
+	@(cd $(1) && uv run ruff format --check $(2))
+	@(cd $(1) && uv run ruff check $(2))
 	echo "Running mypy for $(2)..."
-	@(cd $(1) && poetry run mypy $(2))
+	@(cd $(1) && uv run mypy $(2))
 	echo "Running pyright for $(2)..."
-	@(cd $(1) && poetry run pyright $(2))
+	@(cd $(1) && uv run pyright $(2))
 endef
 
 

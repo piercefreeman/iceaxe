@@ -1,39 +1,12 @@
-# -*- coding: utf-8 -*-
-from setuptools import setup
+from setuptools import setup, Extension
+from Cython.Build import cythonize
 
-packages = \
-['iceaxe',
- 'iceaxe.__tests__',
- 'iceaxe.__tests__.benchmarks',
- 'iceaxe.__tests__.migrations',
- 'iceaxe.__tests__.schemas',
- 'iceaxe.migrations',
- 'iceaxe.mountaineer',
- 'iceaxe.mountaineer.dependencies',
- 'iceaxe.schemas']
-
-package_data = \
-{'': ['*']}
-
-install_requires = \
-['asyncpg>=0.29.0,<0.30.0', 'pydantic>=2.9.2,<3.0.0', 'rich>=13.9.2,<14.0.0']
-
-setup_kwargs = {
-    'name': 'iceaxe',
-    'version': '0.1.0',
-    'description': '',
-    'long_description': '# iceaxe\n\nA modern, fast ORM for Python. We have the following goals:\n\n- 🏎️ **Performance**: We want to exceed or match the fastest ORMs in Python. We want our ORM\nto be as close as possible to raw-[asyncpg](https://github.com/MagicStack/asyncpg) speeds. See the "Benchmarks" section for more.\n- 📝 **Typehinting**: Everything should be typehinted with expected types. Declare your data as you\nexpect in Python and it should bidirectionally sync to the database.\n- 🐘 **Postgres only**: Leverage native Postgres features and simplify the implementation.\n- ⚡ **Common things are easy, rare things are possible**: 99% of the SQL queries we write are\nvanilla SELECT/INSERT/UPDATEs. These should be natively supported by your ORM. If you\'re writing _really_\ncomplex queries, these are better done by hand so you can see exactly what SQL will be run.\n\nIceaxe is in early alpha. It\'s also an independent project. It\'s compatible with the [Mountaineer](https://github.com/piercefreeman/mountaineer) ecosystem, but you can use it in whatever\nproject and web framework you\'re using.\n\n## Installation\n\nIf you\'re using poetry to manage your dependencies:\n\n```bash\npoetry add iceaxe\n```\n\nOtherwise install with pip\n\n```bash\npip install iceaxe\n```\n\n## Usage\n\nDefine your models as a `TableBase` subclass:\n\n```python\nfrom iceaxe import TableBase\n\nclass Person(TableBase):\n    id: int\n    name: str\n    age: int\n```\n\nTableBase is a subclass of Pydantic\'s `BaseModel`, so you get all of the validation and Field customization\nout of the box. We provide our own `Field` constructor that adds database-specific configuration. For instance, to make the\n`id` field a primary key / auto-incrementing you can do:\n\n```python\nfrom iceaxe import Field\n\nclass Person(TableBase):\n    id: int = Field(primary_key=True)\n    name: str\n    age: int\n```\n\nOkay now you have a model. How do you interact with it?\n\nDatabases are based on a few core primitives to insert data, update it, and fetch it out again.\nTo do so you\'ll need a _database connection_, which is a connection over the network from your code\nto your Postgres database. The `DBConnection` is the core class for all ORM actions against the database.\n\n```python\nfrom iceaxe import DBConnection\nimport asyncpg\n\nconn = DBConnection(\n    await asyncpg.connect(\n        host="localhost",\n        port=5432,\n        user="db_user",\n        password="yoursecretpassword",\n        database="your_db",\n    )\n)\n```\n\nThe Person class currently just lives in memory. To back it with a full\ndatabase table, we can run raw SQL or run a migration to add it:\n\n```python\nawait conn.conn.execute(\n    """\n    CREATE TABLE IF NOT EXISTS person (\n        id SERIAL PRIMARY KEY,\n        name TEXT NOT NULL,\n        age INT NOT NULL\n    )\n    """\n)\n```\n\n### Inserting Data\n\nInstantiate object classes as you normally do:\n\n```python\npeople = [\n    Person(name="Alice", age=30),\n    Person(name="Bob", age=40),\n    Person(name="Charlie", age=50),\n]\nawait conn.insert(people)\n\nprint(people[0].id) # 1\nprint(people[1].id) # 2\n```\n\nBecause we\'re using an auto-incrementing primary key, the `id` field will be populated after the insert.\nIceaxe will automatically update the object in place with the newly assigned value.\n\n### Updating data\n\nNow that we have these lovely people, let\'s modify them.\n\n```python\nperson = people[0]\nperson.name = "Blice"\n```\n\nRight now, we have a Python object that\'s out of state with the database. But that\'s often okay. We can inspect it\nand further write logic - it\'s fully decoupled from the database.\n\n```python\ndef ensure_b_letter(person: Person):\n    if person.name[0].lower() != "b":\n        raise ValueError("Name must start with \'B\'")\n\nensure_b_letter(person)\n```\n\nTo sync the values back to the database, we can call `update`:\n\n```python\nawait conn.update([person])\n```\n\nIf we were to query the database directly, we see that the name has been updated:\n\n```\nid | name  | age\n----+-------+-----\n  1 | Blice |  31\n  2 | Bob   |  40\n  3 | Charlie | 50\n```\n\nBut no other fields have been touched. This lets a potentially concurrent process\nmodify `Alice`\'s record - say, updating the age to 31. By the time we update the data, we\'ll\nchange the name but nothing else. Under the hood we do this by tracking the fields that\nhave been modified in-memory and creating a targeted UPDATE to modify only those values.\n\n### Selecting data\n\nTo select data, we can use a `QueryBuilder`. For a shortcut to `select` query functions,\nyou can also just import select directly. This method takes the desired value parameters\nand returns a list of the desired objects.\n\n```python\nfrom iceaxe import select\n\nquery = select(Person).where(Person.name == "Blice", Person.age > 25)\nresults = await conn.exec(query)\n```\n\nIf we inspect the typing of `results`, we see that it\'s a `list[Person]` objects. This matches\nthe typehint of the `select` function. You can also target columns directly:\n\n```python\nquery = select((Person.id, Person.name)).where(Person.age > 25)\nresults = await conn.exec(query)\n```\n\nThis will return a list of tuples, where each tuple is the id and name of the person: `list[tuple[int, str]]`.\n\nWe support most of the common SQL operations. Just like the results, these are typehinted\nto their proper types as well. Static typecheckers and your IDE will throw an error if you try to compare\na string column to an integer, for instance. A more complex example of a query:\n\n```python\nquery = select((\n    Person.id,\n    FavoriteColor,\n)).join(\n    FavoriteColor,\n    Person.id == FavoriteColor.person_id,\n).where(\n    Person.age > 25,\n    Person.name == "Blice",\n).order_by(\n    Person.age.desc(),\n).limit(10)\nresults = await conn.exec(query)\n```\n\nAs expected this will deliver results - and typehint - as a `list[tuple[int, FavoriteColor]]`\n\n## Production\n\n> [!IMPORTANT]\n> Iceaxe is in early alpha. We\'re using it internally and showly rolling out to our production\napplications, but we\'re not yet ready to recommend it for general use. The API and larger\nstability is subject to change.\n\nNote that underlying Postgres connection wrapped by `conn` will be alive for as long as your object is in memory. This uses up one\nof the allowable connections to your database. Your overall limit depends on your Postgres configuration\nor hosting provider, but most managed solutions top out around 150-300. If you need more concurrent clients\nconnected (and even if you don\'t - connection creation at the Postgres level is expensive), you can adopt\na load balancer like `pgbouncer` to better scale to traffic. More deployment notes to come.\n\nIt\'s also worth noting the absence of request pooling in this initialization. This is a feature of many ORMs that lets you limit\nthe overall connections you make to Postgres, and re-use these over time. We specifically don\'t offer request\npooling as part of Iceaxe, despite being supported by our underlying engine `asyncpg`. This is a bit more\naligned to how things should be structured in production. Python apps are always bound to one process thanks to\nthe GIL. So no matter what your connection pool will always be tied to the current Python process / runtime. When you\'re deploying onto a server with multiple cores, the pool will be duplicated across CPUs and largely defeats the purpose of capping\nnetwork connections in the first place.\n\n## Benchmarking\n\nWe have basic benchmarking tests in the `__tests__/benchmarks` directory. To run them, you\'ll need to execute the pytest suite:\n\n```bash\npoetry run pytest -m integration_tests\n```\n\nCurrent benchmarking as of October 11 2024 is:\n\n|                   | raw asyncpg | iceaxe | external overhead                             |   |\n|-------------------|-------------|--------|-----------------------------------------------|---|\n| TableBase columns | 0.098s      | 0.093s |                                               |   |\n| TableBase full    | 0.164s      | 1.345s | 10%: dict construction | 90%: pydantic overhead |   |\n\n## Development\n\nIf you update your Cython implementation during development, you\'ll need to re-compile the Cython code. This can be done with:\n\n```bash\npoetry run python setup.py build_ext --inplace\n```\n\n## TODOs\n\n- [ ] Additional documentation with usage examples.\n',
-    'author': 'Pierce Freeman',
-    'author_email': 'pierce@freeman.vc',
-    'maintainer': 'None',
-    'maintainer_email': 'None',
-    'url': 'None',
-    'packages': packages,
-    'package_data': package_data,
-    'install_requires': install_requires,
-    'python_requires': '>=3.11,<4.0',
-}
-from build import *
-build(setup_kwargs)
-
-setup(**setup_kwargs)
+setup(
+    name="iceaxe",
+    ext_modules=cythonize(
+        [
+            Extension("iceaxe.session_optimized", ["iceaxe/session_optimized.pyx"]),
+        ],
+        compiler_directives={'language_level': "3"}
+    )
+)
