@@ -1,10 +1,12 @@
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from inspect import isgenerator
-from typing import Any, Generator, Sequence, Type, TypeVar, Union
+from typing import Any, Generator, Sequence, Type, TypeVar, Union, cast, get_origin, get_args
 from uuid import UUID
 
 from pydantic_core import PydanticUndefined
+from typing_inspection.introspection import AnnotationSource, inspect_annotation
+from typing_inspection.typing_objects import is_annotated
 
 from iceaxe.base import (
     DBFieldInfo,
@@ -351,6 +353,59 @@ class DatabaseHandler:
         if isinstance(annotation, TypeVar):
             typevar_map = get_typevar_mapping(table)
             annotation = typevar_map[annotation]
+
+        # Handle Annotated types by extracting the underlying type
+        origin = get_origin(annotation)
+        if origin is not None and str(origin) == "typing.Annotated":
+            # Get the underlying type (first argument of Annotated)
+            args = get_args(annotation)
+            if args:
+                annotation = args[0]
+
+        # Handle pydantic types like EmailStr
+        if hasattr(annotation, "__module__") and annotation.__module__.startswith("pydantic"):
+            # For pydantic.EmailStr, pydantic.HttpUrl, etc., treat as string
+            if annotation.__name__ in ("EmailStr", "NameEmail", "HttpUrl", "AnyUrl", "IPvAnyAddress", "IPvAnyInterface", "IPvAnyNetwork"):
+                return TypeDeclarationResponse(
+                    primitive_type=ColumnType.VARCHAR,
+                )
+            # For pydantic.SecretStr, pydantic.SecretBytes, treat as string/bytes
+            elif annotation.__name__ == "SecretStr":
+                return TypeDeclarationResponse(
+                    primitive_type=ColumnType.VARCHAR,
+                )
+            elif annotation.__name__ == "SecretBytes":
+                return TypeDeclarationResponse(
+                    primitive_type=ColumnType.BYTEA,
+                )
+            # For pydantic.Json, treat as JSON
+            elif annotation.__name__ == "Json":
+                return TypeDeclarationResponse(
+                    primitive_type=ColumnType.JSON,
+                )
+            # For pydantic.conint, confloat, etc., treat as their base types
+            elif annotation.__name__.startswith("con"):
+                base_type = annotation.__name__[3:]  # Remove 'con' prefix
+                if base_type == "int":
+                    return TypeDeclarationResponse(
+                        primitive_type=ColumnType.INTEGER,
+                    )
+                elif base_type == "float":
+                    return TypeDeclarationResponse(
+                        primitive_type=ColumnType.DOUBLE_PRECISION,
+                    )
+                elif base_type == "str":
+                    return TypeDeclarationResponse(
+                        primitive_type=ColumnType.VARCHAR,
+                    )
+                elif base_type == "bytes":
+                    return TypeDeclarationResponse(
+                        primitive_type=ColumnType.BYTEA,
+                    )
+                elif base_type == "decimal":
+                    return TypeDeclarationResponse(
+                        primitive_type=ColumnType.NUMERIC,
+                    )
 
         # Should be prioritized in terms of MRO; StrEnums should be processed
         # before the str types
