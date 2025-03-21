@@ -1128,13 +1128,13 @@ async def test_db_connection_update_batched(db_connection: DBConnection):
 
     # Check group 2 (only emails updated)
     for i, row in enumerate(result[10:20]):
-        assert row["name"] == f"User{i+10}"
-        assert row["email"] == f"updated_user{i+10}@example.com"
+        assert row["name"] == f"User{i + 10}"
+        assert row["email"] == f"updated_user{i + 10}@example.com"
 
     # Check group 3 (both fields updated)
     for i, row in enumerate(result[20:30]):
-        assert row["name"] == f"UpdatedUser{i+20}"
-        assert row["email"] == f"updated_user{i+20}@example.com"
+        assert row["name"] == f"UpdatedUser{i + 20}"
+        assert row["email"] == f"updated_user{i + 20}@example.com"
 
     # Verify all modifications were cleared
     assert all(user.get_modified_attributes() == {} for user in all_users)
@@ -1477,3 +1477,33 @@ async def test_get_dsn(db_connection: DBConnection):
     assert "localhost" in dsn
     assert "5438" in dsn
     assert "iceaxe_test_db" in dsn
+
+
+@pytest.mark.asyncio
+async def test_nested_transactions(db_connection):
+    """
+    Test that nested transactions raise an error by default, but work with ensure=True.
+    """
+    # Start an outer transaction
+    async with db_connection.transaction():
+        # This should work fine
+        assert db_connection.in_transaction is True
+
+        # Nested transaction with ensure=True should work
+        async with db_connection.transaction(ensure=True):
+            assert db_connection.in_transaction is True
+
+        # Nested transaction without ensure should fail
+        with pytest.raises(
+            RuntimeError,
+            match="Cannot start a new transaction while already in a transaction",
+        ):
+            async with db_connection.transaction():
+                pass  # Should not reach here
+
+    # After outer transaction ends, we should be out of transaction
+    assert db_connection.in_transaction is False
+
+    # Now a new transaction should start without error
+    async with db_connection.transaction():
+        assert db_connection.in_transaction is True

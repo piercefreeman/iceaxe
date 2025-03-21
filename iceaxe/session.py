@@ -188,10 +188,13 @@ class DBConnection:
         return "".join(dsn_parts)
 
     @asynccontextmanager
-    async def transaction(self):
+    async def transaction(self, *, ensure: bool = False):
         """
         Context manager for managing database transactions. Ensures that a series of database
         operations are executed atomically.
+
+        :param ensure: If True and already in a transaction, the context manager will yield without creating a new transaction.
+                       If False (default) and already in a transaction, raises a RuntimeError.
 
         ```python {{sticky: True}}
         async with conn.transaction():
@@ -207,8 +210,13 @@ class DBConnection:
         """
         # If ensure is True and we're already in a transaction, just yield
         if self.in_transaction:
-            yield
-            return
+            if ensure:
+                yield
+                return
+            else:
+                raise RuntimeError(
+                    "Cannot start a new transaction while already in a transaction. Use ensure=True if this is intentional."
+                )
 
         # Otherwise, start a new transaction
         self.in_transaction = True
@@ -331,7 +339,7 @@ class DBConnection:
             return
 
         # Reuse a single transaction for all inserts
-        async with self.transaction():
+        async with self.transaction(ensure=True):
             for model, model_objects in self._aggregate_models_by_table(objects):
                 # For each table, build batched insert queries
                 table_name = QueryIdentifier(model.get_table_name())
@@ -472,7 +480,7 @@ class DBConnection:
                 raise ValueError(f"Field {field} is not a column")
 
         results: list[tuple[T, *Ts]] = []
-        async with self.transaction():
+        async with self.transaction(ensure=True):
             for model, model_objects in self._aggregate_models_by_table(objects):
                 table_name = QueryIdentifier(model.get_table_name())
                 fields = {
@@ -565,7 +573,7 @@ class DBConnection:
         if not objects:
             return
 
-        async with self.transaction():
+        async with self.transaction(ensure=True):
             for model, model_objects in self._aggregate_models_by_table(objects):
                 table_name = QueryIdentifier(model.get_table_name())
                 primary_key = self._get_primary_key(model)
@@ -644,7 +652,7 @@ class DBConnection:
         :param objects: A sequence of TableBase instances to delete
 
         """
-        async with self.transaction():
+        async with self.transaction(ensure=True):
             for model, model_objects in self._aggregate_models_by_table(objects):
                 table_name = QueryIdentifier(model.get_table_name())
                 primary_key = self._get_primary_key(model)
