@@ -14,7 +14,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]
-        python-version: ["3.11", "3.12"]
+        python-version: ["3.11", "3.12", "3.13"]
     services:
       postgres:
         image: postgres:latest
@@ -30,33 +30,26 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     steps:
-      - uses: actions/checkout@v3
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v4
+      - uses: actions/checkout@v4
+      - name: Install uv and with python version ${{ matrix.python-version }}
+        uses: astral-sh/setup-uv@v5
         with:
+          enable-cache: true
           python-version: ${{ matrix.python-version }}
-      - name: Install Poetry
-        uses: snok/install-poetry@v1
-      - name: Install dependencies
-        run: poetry install
       - name: Run tests
-        run: |
-          poetry run pytest -v --continue-on-collection-errors
+        run: uv run pytest -v --continue-on-collection-errors
         env:
           ICEAXE_LOG_LEVEL: DEBUG
 
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - name: Set up Python
-        uses: actions/setup-python@v4
+      - uses: actions/checkout@v4
+      - name: Install uv with Python 3.13
+        uses: astral-sh/setup-uv@v5
         with:
-          python-version: "3.12"
-      - name: Install Poetry
-        uses: snok/install-poetry@v1
-      - name: Install dependencies
-        run: poetry install
+          enable-cache: true
+          python-version: 3.13
       - name: Run lint
         run: make lint
 
@@ -68,15 +61,17 @@ jobs:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v3
-
-      - name: Set up Python
-        uses: actions/setup-python@v4
+      - uses: actions/checkout@v4
+      - name: Install uv with Python 3.13
+        uses: astral-sh/setup-uv@v5
         with:
-          python-version: "3.12"
+          enable-cache: true
+          python-version: 3.13
 
-      - name: Install Poetry
-        uses: snok/install-poetry@v1
+      - name: Update version
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: uv run .github/scripts/update_version.py ${{ github.ref_name }}
 
       - name: Clean build artifacts
         run: |
@@ -87,13 +82,6 @@ jobs:
           find . -type f -name "*.o" -delete
           find . -type f -name "*.c" -delete
 
-      - name: Update version in pyproject.toml
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: |
-          VERSION=${GITHUB_REF#refs/tags/v}
-          poetry version $VERSION
-        shell: bash
-
       - name: Set up QEMU
         if: runner.os == 'Linux'
         uses: docker/setup-qemu-action@v3
@@ -102,7 +90,7 @@ jobs:
 
       - name: Build SDist
         if: matrix.os == 'ubuntu-latest'
-        run: poetry build --format sdist
+        run: uv build --sdist
 
       - name: Build wheels
         uses: pypa/cibuildwheel@v2.16.5

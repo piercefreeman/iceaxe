@@ -1,48 +1,48 @@
-[tool.poetry]
+[project]
 name = "iceaxe"
 version = "0.1.0"
 description = "A modern, fast ORM for Python."
-authors = ["Pierce Freeman <pierce@freeman.vc>"]
 readme = "README.md"
-
-[tool.poetry.dependencies]
-python = "^3.11"
-asyncpg = "^0.30.0"
-pydantic = "^2.9.2"
-rich = "^13.9.2"
-
-
-[tool.poetry.group.dev.dependencies]
-pytest = "^8.3.3"
-pytest-asyncio = "^0.24.0"
-ruff = "^0.6.9"
-mypy = "^1.11.2"
-pyright = "^1.1.383"
-mountaineer = "^0.6.0"
-pyinstrument = "^4.7.3"
+authors = [{ name = "Pierce Freeman", email = "pierce@freeman.vc" }]
+requires-python = ">=3.11"
+dependencies = [
+    "asyncpg>=0.30,<1",
+    "mountaineer>=0.8.0",
+    "mypy>=1.15.0",
+    "pydantic>=2,<3",
+    "pyinstrument>=5.0.1",
+    "pyright>=1.1.396",
+    "pytest>=8.3.5",
+    "pytest-asyncio>=0.25.3",
+    "rich>=13,<14",
+    "ruff>=0.11.0",
+]
 
 [build-system]
-requires = ["poetry-core>=1.0.0", "cython>=3.0.0", "setuptools>=71.1.0"]
-build-backend = "poetry.core.masonry.api"
+requires = ["setuptools>=61", "cython>=3.0.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+include-package-data = false
+py-modules = ["iceaxe"]
 
 [tool.cython-build]
 packages = ["iceaxe"]
 include = ["iceaxe/*.pyx"]
 
-[tool.poetry.build]
-script = "build.py"
-generate-setup-file = true
-
-[tool.pytest.ini_options]
-markers = ["integration_tests: run longer-running integration tests"]
-# Default pytest runs shouldn't execute the integration tests
-addopts = "-m 'not integration_tests'"
+[tool.pyright]
+venvPath = "."
+venv = ".venv"
 
 [tool.mypy]
 warn_return_any = true
 warn_unused_configs = true
 check_untyped_defs = true
 plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = "asyncpg.*"
+ignore_missing_imports = true
 
 [tool.pydantic-mypy]
 init_forbid_extra = true
@@ -64,6 +64,7 @@ section-order = [
 ]
 combine-as-imports = true
 
-[[tool.mypy.overrides]]
-module = "asyncpg.*"
-ignore_missing_imports = true
+[tool.pytest.ini_options]
+markers = ["integration_tests: run longer-running integration tests"]
+# Default pytest runs shouldn't execute the integration tests
+addopts = "-m 'not integration_tests'"

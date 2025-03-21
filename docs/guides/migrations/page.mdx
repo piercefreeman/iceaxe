@@ -64,10 +64,10 @@ def rollback():
 ```
 
 Great, now just modify your pyproject.toml file to make these callable. If you're
-using Poetry, you can add the following to your `tool.poetry.scripts` section:
+using `uv`, you can add the following to your `project.scripts` section:
 
 ```toml
-[tool.poetry.scripts]
+[project.scripts]
 migrate-generate = "myproject.cli:generate"
 migrate-apply = "myproject.cli:apply"
 migrate-rollback = "myproject.cli:rollback"
@@ -103,7 +103,7 @@ When we call our `migrate-generate` from the CLI, Iceaxe will do the following:
 - Generate a migration file that will add the `age` column to the `employee` table
 
 ```bash
-$ poetry run migrate-generate
+$ uv run migrate-generate
 
 Generating migration to current schema
 New migration added: rev_1729278706.py
@@ -161,7 +161,7 @@ the `migrate-apply` command. This migration will apply any unapplied migrations 
 your migrations folder up to the last revision.
 
 ```bash
-$ poetry run migrate-apply
+$ uv run migrate-apply
 
 🚀 Applied 1729278608 in 0.02s
 ```
