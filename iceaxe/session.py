@@ -16,7 +16,7 @@ from typing import (
 import asyncpg
 from typing_extensions import TypeVarTuple
 
-from iceaxe.base import DBFieldClassDefinition, TableBase
+from iceaxe.base import DBFieldClassDefinition, ModelWithID, TableBase
 from iceaxe.logging import LOGGER
 from iceaxe.modifications import ModificationTracker
 from iceaxe.queries import (
@@ -283,6 +283,100 @@ class DBConnection:
             ]
 
             result_all = optimize_exec_casting(values, query._select_raw, select_types)
+
+            # Post-process for polymorphic models
+            if result_all and query._select_raw and is_base_table(query._select_raw[0]):
+                model_class = query._select_raw[0]
+                # Check if this is a polymorphic model
+                is_polymorphic = (
+                    hasattr(model_class, "get_discriminator_field")
+                    and model_class.get_discriminator_field() is not None
+                )
+
+                if is_polymorphic:
+                    discriminator_field = model_class.get_discriminator_field()
+                    LOGGER.debug(
+                        f"Post-processing polymorphic models with discriminator field: {discriminator_field}"
+                    )
+
+                    # Get all ids from our results to fetch the complete rows
+                    instance_ids = []
+                    for instance in result_all:
+                        if isinstance(instance, model_class) and hasattr(
+                            instance, "id"
+                        ):
+                            # Cast the instance to ModelWithID for type checking
+                            instance_with_id = cast(ModelWithID, instance)
+                            instance_ids.append(instance_with_id.id)
+
+                    if instance_ids:
+                        # Fetch the complete rows for all instances in a single query
+                        table_name = model_class.get_table_name()
+                        complete_rows = await self.conn.fetch(
+                            f"SELECT * FROM {table_name} WHERE id = ANY($1)",
+                            instance_ids,
+                        )
+
+                        # Create a mapping from id to complete row
+                        complete_row_map = {row["id"]: row for row in complete_rows}
+
+                        # Process each instance
+                        for i, instance in enumerate(result_all):
+                            if isinstance(instance, model_class) and hasattr(
+                                instance, "id"
+                            ):
+                                # Cast the instance to ModelWithID for type checking
+                                instance_with_id = cast(ModelWithID, instance)
+                                instance_id = instance_with_id.id
+                                if instance_id in complete_row_map:
+                                    original_row = complete_row_map[instance_id]
+
+                                    # Get discriminator value from the full row
+                                    discriminator_value = original_row[
+                                        discriminator_field
+                                    ]
+
+                                    # Find the appropriate subclass
+                                    subclass = (
+                                        model_class.get_subclass_for_discriminator(
+                                            discriminator_value
+                                        )
+                                    )
+
+                                    if subclass is not model_class:
+                                        LOGGER.debug(
+                                            f"Converting instance from {model_class.__name__} to {subclass.__name__} with discriminator value: {discriminator_value}"
+                                        )
+
+                                        # Create a dictionary with all fields from the row
+                                        instance_data = dict(original_row)
+                                        LOGGER.debug(
+                                            f"Creating {subclass.__name__} with data: {instance_data}"
+                                        )
+
+                                        # Create a new instance of the subclass with the complete data
+                                        new_instance = subclass(**instance_data)
+
+                                        # Copy any state related to modifications
+                                        if hasattr(instance, "modified_attrs"):
+                                            setattr(
+                                                new_instance,
+                                                "modified_attrs",
+                                                getattr(instance, "modified_attrs"),
+                                            )
+                                        if hasattr(
+                                            instance, "modified_attrs_callbacks"
+                                        ):
+                                            setattr(
+                                                new_instance,
+                                                "modified_attrs_callbacks",
+                                                getattr(
+                                                    instance, "modified_attrs_callbacks"
+                                                ),
+                                            )
+
+                                        # Replace in the result list
+                                        result_all[i] = new_instance
 
             # Only loop through results if we have verbosity enabled, since this logic otherwise
             # is wasted if no content will eventually be logged

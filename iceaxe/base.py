@@ -3,6 +3,8 @@ from typing import (
     Any,
     Callable,
     ClassVar,
+    Dict,
+    Protocol,
     Self,
     Type,
     dataclass_transform,
@@ -13,6 +15,13 @@ from pydantic.main import _model_construction
 from pydantic_core import PydanticUndefined
 
 from iceaxe.field import DBFieldClassDefinition, DBFieldInfo, Field
+
+
+# Define a protocol for models that have an ID field
+class ModelWithID(Protocol):
+    """Protocol for models that have an ID field."""
+
+    id: Any
 
 
 @dataclass_transform(kw_only_default=True, field_specifiers=(PydanticField,))
@@ -348,3 +357,197 @@ class TableBase(BaseModel, metaclass=DBModelMetaclass):
         }
 
         return fields == other_fields
+
+
+class PolymorphicBase(TableBase):
+    """
+    Base class for polymorphic models that use single-table inheritance.
+
+    This class provides the infrastructure for polymorphic model loading, where different
+    model subclasses share a single database table, and the appropriate subclass is chosen
+    based on a discriminator column value.
+
+    Example:
+    ```python
+    class Animal(PolymorphicBase):
+        id: int = Field(primary_key=True)
+        type: str = Field(discriminator_type=True)
+        name: str
+
+    class Dog(Animal):
+        breed: str
+        bark_volume: int
+
+    class Cat(Animal):
+        fur_color: str
+        lives_left: int
+
+    # When querying, the right subclass will be instantiated based on the 'type' column value
+    animals = await conn.exec(select(Animal))
+    # Each animal in the result will be either a Dog or Cat instance
+    ```
+    """
+
+    # Dictionary to store the mapping from discriminator value to subclass
+    __poly_registry: ClassVar[Dict[str, Type["PolymorphicBase"]]] = {}
+    __discriminator_field: ClassVar[str | None] = None
+
+    @classmethod
+    def get_table_name(cls) -> str:
+        """
+        Get the table name for this polymorphic model.
+
+        For polymorphic models, all subclasses share the same table, so we need to use
+        the base class's table name for all subclasses.
+
+        :return: The table name of the base polymorphic class
+        """
+        # Get the immediate polymorphic base class (first in MRO that is a PolymorphicBase)
+        base_class = None
+        for base in cls.__mro__[1:]:  # Skip self
+            if issubclass(base, PolymorphicBase) and base is not PolymorphicBase:
+                base_class = base
+                break
+
+        # If this is a subclass, use the base class's table name
+        if base_class is not None:
+            return base_class.get_table_name()
+
+        # Otherwise, use the normal table name logic
+        return super().get_table_name()
+
+    @classmethod
+    def __init_subclass__(cls, **kwargs):
+        """
+        Register the subclass in the polymorphic registry.
+        This is automatically called when a class inherits from PolymorphicBase.
+        """
+        super().__init_subclass__(**kwargs)
+
+        # Skip abstract base classes or classes with no fields
+        if not hasattr(cls, "model_fields") or not cls.model_fields:
+            return
+
+        # Find the base polymorphic class for this hierarchy
+        base_poly_class = cls
+        for base in cls.__mro__[1:]:  # Skip self
+            if issubclass(base, PolymorphicBase) and base is not PolymorphicBase:
+                base_poly_class = base
+                break
+            elif base is PolymorphicBase:
+                # Reached PolymorphicBase itself, stop
+                break
+
+        # Find the discriminator field if it exists
+        discriminator_field = None
+        discriminator_value = cls.__name__
+
+        # Look for a discriminator field in the model fields
+        for field_name, field_info in cls.model_fields.items():
+            if (
+                hasattr(field_info, "discriminator_type")
+                and field_info.discriminator_type
+            ):
+                discriminator_field = field_name
+                # If the field has a default value on this class, use that as the discriminator
+                if (
+                    hasattr(field_info, "default")
+                    and field_info.default is not None
+                    and field_info.default != PydanticUndefined
+                ):
+                    discriminator_value = field_info.default
+                break
+
+        # Find a discriminator field from the base class if not in this class
+        if discriminator_field is None and base_poly_class != cls:
+            base_discriminator = base_poly_class.get_discriminator_field()
+            if base_discriminator:
+                discriminator_field = base_discriminator
+                # Try to find a default for this field in this class
+                if discriminator_field in cls.model_fields:
+                    field_info = cls.model_fields[discriminator_field]
+                    if (
+                        hasattr(field_info, "default")
+                        and field_info.default is not None
+                        and field_info.default != PydanticUndefined
+                    ):
+                        discriminator_value = field_info.default
+
+        # Store the discriminator field name in the base polymorphic class
+        if (
+            discriminator_field
+            and not hasattr(base_poly_class, "__discriminator_field")
+            or base_poly_class.__discriminator_field is None
+        ):
+            base_poly_class.__discriminator_field = discriminator_field
+
+        # Register this class with its discriminator value if we have a discriminator field
+        if discriminator_field is not None and cls is not base_poly_class:
+            # Register with class name
+            base_poly_class.__poly_registry[cls.__name__] = cls
+
+            # Register with the string representation of the discriminator value
+            str_value = str(discriminator_value)
+            if str_value != cls.__name__:
+                base_poly_class.__poly_registry[str_value] = cls
+
+    @classmethod
+    def get_subclass_for_discriminator(
+        cls, discriminator_value: Any
+    ) -> Type["PolymorphicBase"]:
+        """
+        Get the appropriate subclass for a given discriminator value.
+
+        :param discriminator_value: The value of the discriminator field
+        :return: The polymorphic subclass to instantiate
+        """
+        # Get the base polymorphic class for this hierarchy
+        base_poly_class = cls
+        for base in cls.__mro__:
+            if issubclass(base, PolymorphicBase) and base is not PolymorphicBase:
+                base_poly_class = base
+                break
+            elif base is PolymorphicBase:
+                # Reached PolymorphicBase itself, stop
+                break
+
+        # Convert to string to handle enum types consistently
+        str_value = str(discriminator_value)
+
+        # Try the direct string value first
+        if str_value in base_poly_class.__poly_registry:
+            subclass = base_poly_class.__poly_registry[str_value]
+            return subclass
+
+        # If not found, try checking if we need to look up based on case-insensitive matching
+        # This covers cases where enum values might be stored differently than class names
+        for reg_value, reg_class in base_poly_class.__poly_registry.items():
+            if str_value.lower() == reg_value.lower():
+                return reg_class
+
+        # If not found, try to match the first letter capitalized (for enum values to class names)
+        capitalized_value = str_value.capitalize()
+        if capitalized_value in base_poly_class.__poly_registry:
+            subclass = base_poly_class.__poly_registry[capitalized_value]
+            return subclass
+
+        # If no exact match, return the class we were called on
+        return cls
+
+    @classmethod
+    def get_discriminator_field(cls) -> str | None:
+        """
+        Get the name of the discriminator field for this polymorphic model.
+
+        :return: Name of the discriminator field or None if not set
+        """
+        return cls.__discriminator_field
+
+    @classmethod
+    def get_all_subclasses(cls) -> list[Type["PolymorphicBase"]]:
+        """
+        Get all registered polymorphic subclasses.
+
+        :return: List of all polymorphic subclass types
+        """
+        return list(cls.__poly_registry.values())

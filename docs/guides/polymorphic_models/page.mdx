@@ -1,0 +1,122 @@
+# Polymorphic Models
+
+Iceaxe supports polymorphic models through single table inheritance. This allows you to define a base model class that can be loaded as different subclasses based on a discriminator column.
+
+## Basic Usage
+
+To use polymorphic models, inherit from `PolymorphicBase` instead of `TableBase`:
+
+```python
+from enum import StrEnum
+from iceaxe import PolymorphicBase, Field
+
+class AnimalType(StrEnum):
+    DOG = "dog"
+    CAT = "cat"
+    BIRD = "bird"
+
+class Animal(PolymorphicBase):
+    id: int = Field(primary_key=True)
+    type: AnimalType = Field(discriminator_type=True) # Mark discriminator column
+    name: str
+    age: int
+
+class Dog(Animal):
+    breed: str | None = None
+    bark_volume: int | None = None
+
+class Cat(Animal):
+    fur_color: str | None = None
+    lives_left: int | None = None
+
+class Bird(Animal):
+    wingspan: float | None = None
+    can_talk: bool | None = None
+```
+
+## How It Works
+
+When you create a polymorphic model hierarchy:
+
+1. Define a base model that inherits from `PolymorphicBase`
+2. Mark one column as the discriminator using `discriminator_type=True`
+3. Create subclasses that inherit from the base model
+
+When you query the base model, Iceaxe will automatically instantiate the appropriate subclass based on the value in the discriminator column.
+
+## Database Table Structure
+
+Polymorphic models use a single table inheritance pattern. This means all subclasses share the same database table, with columns for all fields from all subclasses. When a field isn't used by a particular subclass, it will be NULL in the database.
+
+For example, the `Animal` model above would create a single table with columns for all fields: `id`, `type`, `name`, `age`, `breed`, `bark_volume`, `fur_color`, `lives_left`, `wingspan`, and `can_talk`.
+
+## Inserting Data
+
+When inserting a polymorphic model, make sure to set the discriminator field to the appropriate value:
+
+```python
+# Create instances of different subclasses
+dog = Dog(type=AnimalType.DOG, name="Buddy", age=5, breed="Golden Retriever", bark_volume=8)
+cat = Cat(type=AnimalType.CAT, name="Whiskers", age=3, fur_color="Tabby", lives_left=9)
+bird = Bird(type=AnimalType.BIRD, name="Polly", age=2, wingspan=0.3, can_talk=True)
+
+# Insert them into the database
+await conn.insert([dog, cat, bird])
+```
+
+## Querying Data
+
+When you query the base model, Iceaxe will automatically return instances of the appropriate subclass:
+
+```python
+from iceaxe.queries import select
+
+# Query all animals
+animals = await conn.exec(select(Animal))
+
+# animals will contain a mix of Dog, Cat, and Bird instances,
+# depending on the 'type' column value for each row
+
+# You can also query specific types
+dogs = await conn.exec(select(Animal).where(Animal.type == AnimalType.DOG))
+# dogs will contain only Dog instances
+```
+
+## Automatic Type Registration
+
+Iceaxe automatically registers all subclasses of your polymorphic models. By default, the discriminator value is the class name, but you can override this by setting a default value for the discriminator field:
+
+```python
+class Cat(Animal):
+    type: AnimalType = AnimalType.CAT  # Override the discriminator value
+    fur_color: str | None = None
+    lives_left: int | None = None
+```
+
+## Advanced Usage
+
+### Custom Discriminator Field
+
+You can use any field as the discriminator, not just a type field:
+
+```python
+class Content(PolymorphicBase):
+    id: int = Field(primary_key=True)
+    content_type: str = Field(discriminator_type=True)
+    title: str
+    created_at: datetime
+
+class TextContent(Content):
+    content_type: str = "text"
+    text: str
+
+class ImageContent(Content):
+    content_type: str = "image"
+    image_url: str
+    width: int
+    height: int
+```
+
+### Migration Considerations
+
+When adding new fields to polymorphic subclasses, you'll need to add those columns to the base table. Make sure to make these fields nullable or provide default values to handle existing data. 

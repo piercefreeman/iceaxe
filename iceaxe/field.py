@@ -37,6 +37,7 @@ class DBFieldInputs(_FieldInfoInputs, total=False):
     index: bool
     check_expression: str | None
     is_json: bool
+    discriminator_type: bool
 
 
 class DBFieldInfo(FieldInfo):
@@ -97,6 +98,12 @@ class DBFieldInfo(FieldInfo):
     When True, the field's value will be JSON serialized before storage.
     """
 
+    discriminator_type: bool = False
+    """
+    Indicates if this field serves as a discriminator for polymorphic models.
+    When True, this column will be used to determine which model class to instantiate.
+    """
+
     def __init__(self, **kwargs: Unpack[DBFieldInputs]):
         """
         Initialize a new DBFieldInfo instance with the given field configuration.
@@ -119,6 +126,7 @@ class DBFieldInfo(FieldInfo):
         self.index = kwargs.pop("index", False)
         self.check_expression = kwargs.pop("check_expression", None)
         self.is_json = kwargs.pop("is_json", False)
+        self.discriminator_type = kwargs.pop("discriminator_type", False)
 
     @classmethod
     def extend_field(
@@ -131,6 +139,7 @@ class DBFieldInfo(FieldInfo):
         index: bool,
         check_expression: str | None,
         is_json: bool,
+        discriminator_type: bool = False,
     ):
         """
         Helper function to extend a Pydantic FieldInfo with database-specific attributes.
@@ -144,6 +153,7 @@ class DBFieldInfo(FieldInfo):
             index=index,
             check_expression=check_expression,
             is_json=is_json,
+            discriminator_type=discriminator_type,
             **field._attributes_set,  # type: ignore
         )
 
@@ -168,6 +178,7 @@ def __get_db_field(_: Callable[Concatenate[Any, P], Any] = PydanticField):  # ty
         index: bool = False,
         check_expression: str | None = None,
         is_json: bool = False,
+        discriminator_type: bool = False,
         default: Any = _Unset,
         default_factory: (
             Callable[[], Any] | Callable[[dict[str, Any]], Any] | None
@@ -192,6 +203,7 @@ def __get_db_field(_: Callable[Concatenate[Any, P], Any] = PydanticField):  # ty
                 index=index,
                 check_expression=check_expression,
                 is_json=is_json,
+                discriminator_type=discriminator_type,
             ),
         )
 

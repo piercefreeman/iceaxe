@@ -19,8 +19,22 @@ async def create_all(
             if isclass(cls) and issubclass(cls, TableBase)
         ]
 
+    # Find all polymorphic models and their subclasses
+    all_models = list(models)  # Copy to avoid modifying the original list
+    for model in models:
+        # If this is a polymorphic base class, add all its subclasses
+        if (
+            hasattr(model, "get_discriminator_field")
+            and model.get_discriminator_field() is not None
+        ):
+            if hasattr(model, "get_all_subclasses"):
+                subclasses = model.get_all_subclasses()
+                for subclass in subclasses:
+                    if subclass not in all_models:
+                        all_models.append(subclass)
+
     migrator = DatabaseMemorySerializer()
-    db_objects = list(migrator.delegate(models))
+    db_objects = list(migrator.delegate(all_models))
     next_ordering = migrator.order_db_objects(db_objects)
 
     # Create the tables in the database
