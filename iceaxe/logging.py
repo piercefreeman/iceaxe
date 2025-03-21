@@ -79,7 +79,7 @@ def log_time_duration(message: str):
     """
     start = monotonic_ns()
     yield
-    LOGGER.debug(f"{message} : Took {(monotonic_ns() - start)/1e9:.2f}s")
+    LOGGER.debug(f"{message} : Took {(monotonic_ns() - start) / 1e9:.2f}s")
 
 
 # Our global logger should only surface warnings and above by default
