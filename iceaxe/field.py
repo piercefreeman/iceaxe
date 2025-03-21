@@ -100,8 +100,35 @@ class DBFieldInfo(FieldInfo):
 
     discriminator_type: bool = False
     """
-    Indicates if this field serves as a discriminator for polymorphic models.
-    When True, this column will be used to determine which model class to instantiate.
+    Designates this field as the discriminator for polymorphic models.
+    
+    In polymorphic models (single-table inheritance), the discriminator field determines
+    which subclass to instantiate when loading data from the database. Only one field
+    in a polymorphic hierarchy should be marked with discriminator_type=True.
+    
+    The discriminator value defaults to the class name of each subclass unless explicitly
+    overridden with a default value on the field.
+    
+    Example:
+    ```python
+    class Animal(PolymorphicBase):
+        id: int = Field(primary_key=True)
+        type: str = Field(discriminator_type=True)  # This is the discriminator field
+        name: str
+        
+    class Dog(Animal):
+        # Will use "Dog" as the discriminator value
+        breed: str
+        
+    class Cat(Animal):
+        # Will use "Cat" as the discriminator value
+        fur_color: str
+        
+    class Parrot(Animal):
+        # Override the default discriminator value
+        type: str = Field(default="Bird")  # Will use "Bird" instead of "Parrot"
+        speech_ability: int
+    ```
     """
 
     def __init__(self, **kwargs: Unpack[DBFieldInputs]):

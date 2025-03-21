@@ -85,7 +85,7 @@ async def test_from_scratch_migration():
             },
         ),
         DryRunComment(
-            text="\n" "NEW TABLE: modela\n",
+            text="\nNEW TABLE: modela\n",
             previous_line=False,
         ),
         DryRunAction(
@@ -294,7 +294,7 @@ async def test_duplicate_enum_migration():
             },
         ),
         DryRunComment(
-            text="\n" "NEW TABLE: model1\n",
+            text="\nNEW TABLE: model1\n",
             previous_line=False,
         ),
         DryRunAction(
@@ -350,7 +350,7 @@ async def test_duplicate_enum_migration():
             },
         ),
         DryRunComment(
-            text="\n" "NEW TABLE: model2\n",
+            text="\nNEW TABLE: model2\n",
             previous_line=False,
         ),
         DryRunAction(
@@ -998,7 +998,7 @@ async def test_generic_field_subclass():
             },
         ),
         DryRunComment(
-            text="\n" "NEW TABLE: modela\n",
+            text="\nNEW TABLE: modela\n",
             previous_line=False,
         ),
         DryRunAction(
@@ -1377,18 +1377,18 @@ async def test_foreign_key_table_dependency():
     )
 
     # The foreign key constraint should come after both tables and the target column are created
-    assert (
-        target_table_pos < fk_constraint_pos
-    ), "Foreign key constraint should be created after target table"
-    assert (
-        source_table_pos < fk_constraint_pos
-    ), "Foreign key constraint should be created after source table"
-    assert (
-        target_column_pos < fk_constraint_pos
-    ), "Foreign key constraint should be created after target column"
-    assert (
-        target_pk_pos < fk_constraint_pos
-    ), "Foreign key constraint should be created after target primary key"
+    assert target_table_pos < fk_constraint_pos, (
+        "Foreign key constraint should be created after target table"
+    )
+    assert source_table_pos < fk_constraint_pos, (
+        "Foreign key constraint should be created after source table"
+    )
+    assert target_column_pos < fk_constraint_pos, (
+        "Foreign key constraint should be created after target column"
+    )
+    assert target_pk_pos < fk_constraint_pos, (
+        "Foreign key constraint should be created after target primary key"
+    )
 
     # Verify the actual migration actions
     actor = DatabaseActions()

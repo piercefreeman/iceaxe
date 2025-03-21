@@ -367,7 +367,58 @@ class PolymorphicBase(TableBase):
     model subclasses share a single database table, and the appropriate subclass is chosen
     based on a discriminator column value.
 
-    Example:
+    ## Schema Design
+
+    With single-table inheritance, all fields from all subclasses are stored in a single database table.
+    Each subclass should define its unique fields, while the base class defines common fields.
+    The discriminator field determines which concrete subclass to instantiate when loading data.
+
+    Fields that are specific to subclasses will be null for rows that represent other subclasses.
+    Therefore, you should ensure that subclass-specific fields are nullable in the database schema.
+
+    ## Usage
+
+    1. Create a base class that inherits from PolymorphicBase
+    2. Define a discriminator field using `Field(discriminator_type=True)`
+    3. Create subclasses that inherit from your base class
+    4. When querying, the appropriate subclass will be instantiated based on the discriminator value
+
+    ## Discriminator Field
+
+    The discriminator field is a special field that determines which subclass to instantiate.
+    By default, the subclass name is used as the discriminator value unless you specify a default.
+
+    You can use any type for the discriminator field (string, enum, etc.), as long as it can uniquely
+    identify each subclass.
+
+    ## Deep Inheritance Hierarchies
+
+    You can create deep inheritance hierarchies with multiple levels of subclasses.
+    Each level of inheritance will automatically use the discriminator field from the base class.
+
+    Example with deep inheritance:
+    ```python
+    class Animal(PolymorphicBase):
+        id: int = Field(primary_key=True)
+        type: str = Field(discriminator_type=True)
+        name: str
+
+    class Dog(Animal):
+        breed: str
+        size_category: str  # e.g., "small", "medium", "large"
+
+    class SmallDog(Dog):
+        # The discriminator value will be "SmallDog" by default
+        # Additional fields specific to small dogs
+        guard_trained: bool
+
+    # When querying, the right subclass will be instantiated based on the 'type' column value
+    animals = await conn.exec(select(Animal))
+    # Each animal in the result will be an instance of the appropriate subclass
+    ```
+
+    ## Example
+
     ```python
     class Animal(PolymorphicBase):
         id: int = Field(primary_key=True)
@@ -381,6 +432,10 @@ class PolymorphicBase(TableBase):
     class Cat(Animal):
         fur_color: str
         lives_left: int
+
+    # Creating instances
+    dog = Dog(name="Fido", breed="Labrador", bark_volume=8)  # type will be "Dog"
+    cat = Cat(name="Whiskers", fur_color="orange", lives_left=9)  # type will be "Cat"
 
     # When querying, the right subclass will be instantiated based on the 'type' column value
     animals = await conn.exec(select(Animal))

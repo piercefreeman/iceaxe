@@ -82,6 +82,43 @@ dogs = await conn.exec(select(Animal).where(Animal.type == AnimalType.DOG))
 # dogs will contain only Dog instances
 ```
 
+## Deep Inheritance Hierarchies
+
+Iceaxe supports multi-level inheritance hierarchies. You can create subclasses of subclasses, and Iceaxe will handle the polymorphic loading correctly:
+
+```python
+class Dog(Animal):
+    type: AnimalType = AnimalType.DOG  # Override the discriminator value
+    breed: str | None = None
+    size_category: str  # e.g., "small", "medium", "large"
+
+class SmallDog(Dog):
+    # Still uses the same "type" discriminator field from Animal
+    # But needs its own unique discriminator value
+    type: str = "small_dog"  # Custom discriminator value
+    
+    # Additional fields specific to small dogs
+    guard_trained: bool = False
+    
+class WorkingDog(Dog):
+    type: str = "working_dog"
+    job_type: str  # e.g., "herding", "search and rescue", "guide dog"
+    certification_level: int
+```
+
+When querying, Iceaxe will correctly instantiate the most specific subclass based on the discriminator value:
+
+```python
+# Will return a mix of all animal types, including specialized dog subclasses
+animals = await conn.exec(select(Animal))
+
+# Will return only dogs, including SmallDog and WorkingDog instances
+dogs = await conn.exec(select(Dog))
+
+# Will return only SmallDog instances
+small_dogs = await conn.exec(select(Animal).where(Animal.type == "small_dog"))
+```
+
 ## Automatic Type Registration
 
 Iceaxe automatically registers all subclasses of your polymorphic models. By default, the discriminator value is the class name, but you can override this by setting a default value for the discriminator field:
@@ -117,6 +154,44 @@ class ImageContent(Content):
     height: int
 ```
 
+### Working with Nullable Fields
+
+Since all subclass-specific fields are stored in the same table, make sure that fields unique to each subclass are nullable or have default values:
+
+```python
+class Dog(Animal):
+    breed: str | None = None  # Nullable because cats and birds won't have a breed
+    bark_volume: int = 0  # Default value
+```
+
+This is particularly important when adding new fields to existing polymorphic models through migrations.
+
+### Best Practices
+
+1. **Keep your discriminator values consistent**: Use enums or string constants to ensure discriminator values are consistent across your codebase.
+
+2. **Make subclass-specific fields nullable**: Since all fields share the same table, fields specific to one subclass should be nullable to accommodate other subclass instances.
+
+3. **Consider performance implications**: Single table inheritance can lead to tables with many nullable columns. For very complex hierarchies with many subclasses, consider if another approach might be more efficient.
+
+4. **Be careful with migrations**: When adding new fields to subclasses or new subclasses to a hierarchy, consider existing data and whether null constraints need to be adjusted.
+
+5. **Use descriptive discriminator values**: The discriminator value should clearly identify the subclass type, especially if you're not using the class name as the default value.
+
+6. **Validate object creation**: Consider adding validation to ensure subclass-specific required fields are set when creating instances.
+
 ### Migration Considerations
 
-When adding new fields to polymorphic subclasses, you'll need to add those columns to the base table. Make sure to make these fields nullable or provide default values to handle existing data. 
+When adding new fields to polymorphic subclasses, you'll need to add those columns to the base table. Make sure to make these fields nullable or provide default values to handle existing data.
+
+When adding new subclasses to an existing hierarchy, ensure the discriminator value is unique and not already used by existing data.
+
+```python
+# Migration to add a new field to a subclass
+async def migrate(conn):
+    # Add a new column to the animal table for a new Dog attribute
+    await conn.execute("""
+        ALTER TABLE animal
+        ADD COLUMN training_level INT
+    """)
+``` 

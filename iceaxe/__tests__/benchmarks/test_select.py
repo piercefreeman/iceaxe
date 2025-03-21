@@ -107,8 +107,8 @@ async def test_benchmark(
     CONSOLE.print(f"Performance difference: {performance_diff:.2f}%")
 
     # Assert that DBConnection.exec is at most X% slower than raw query
-    assert (
-        performance_diff <= allowed_overhead
-    ), f"DBConnection.exec is {performance_diff:.2f}% slower than raw query, which exceeds the {allowed_overhead}% threshold"
+    assert performance_diff <= allowed_overhead, (
+        f"DBConnection.exec is {performance_diff:.2f}% slower than raw query, which exceeds the {allowed_overhead}% threshold"
+    )
 
     LOGGER.info("Benchmark completed successfully.")

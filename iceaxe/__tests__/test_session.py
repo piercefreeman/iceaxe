@@ -1128,13 +1128,13 @@ async def test_db_connection_update_batched(db_connection: DBConnection):
 
     # Check group 2 (only emails updated)
     for i, row in enumerate(result[10:20]):
-        assert row["name"] == f"User{i+10}"
-        assert row["email"] == f"updated_user{i+10}@example.com"
+        assert row["name"] == f"User{i + 10}"
+        assert row["email"] == f"updated_user{i + 10}@example.com"
 
     # Check group 3 (both fields updated)
     for i, row in enumerate(result[20:30]):
-        assert row["name"] == f"UpdatedUser{i+20}"
-        assert row["email"] == f"updated_user{i+20}@example.com"
+        assert row["name"] == f"UpdatedUser{i + 20}"
+        assert row["email"] == f"updated_user{i + 20}@example.com"
 
     # Verify all modifications were cleared
     assert all(user.get_modified_attributes() == {} for user in all_users)
