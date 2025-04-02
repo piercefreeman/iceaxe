@@ -20,29 +20,35 @@ logger = logging.getLogger(__name__)
 def get_free_port():
     """Find a free port on the host machine."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(('', 0))
+        s.bind(("", 0))
         return s.getsockname()[1]
 
 
 def stop_containers_using_port(client, port):
     """Stop any containers using the specified port."""
     for container in client.containers.list():
-        container_ports = container.attrs.get('HostConfig', {}).get('PortBindings', {})
+        container_ports = container.attrs.get("HostConfig", {}).get("PortBindings", {})
         for container_port, bindings in container_ports.items():
             for binding in bindings:
-                if binding.get('HostPort') == str(port):
-                    logger.info(f"Stopping container {container.name} that is using port {port}")
+                if binding.get("HostPort") == str(port):
+                    logger.info(
+                        f"Stopping container {container.name} that is using port {port}"
+                    )
                     try:
                         container.stop()
                         container.remove()
-                        logger.info(f"Successfully stopped and removed container {container.name}")
+                        logger.info(
+                            f"Successfully stopped and removed container {container.name}"
+                        )
                     except Exception as e:
-                        logger.warning(f"Failed to stop container {container.name}: {e}")
-    
+                        logger.warning(
+                            f"Failed to stop container {container.name}: {e}"
+                        )
+
     # Double-check if the port is free now
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.bind(('0.0.0.0', port))
+            s.bind(("0.0.0.0", port))
             return True
     except OSError:
         return False
@@ -56,16 +62,16 @@ def docker_postgres():
     """
     # Initialize Docker client
     client = docker.from_env()
-    
+
     # Generate a unique container name to avoid conflicts
     container_name = f"postgres-test-{uuid.uuid4().hex[:8]}"
-    
+
     # First try with the fixed port to match existing test expectations
     preferred_port = 5438
-    
+
     # Try to free up the preferred port
     port_freed = stop_containers_using_port(client, preferred_port)
-    
+
     # If we couldn't free the port, use a random one
     if port_freed:
         port = preferred_port
@@ -73,12 +79,12 @@ def docker_postgres():
     else:
         port = get_free_port()
         logger.info(f"Using alternative port {port}")
-    
+
     # PostgreSQL connection details
     pg_user = "iceaxe"
     pg_password = "mysecretpassword"
     pg_db = "iceaxe_test_db"
-    
+
     # Start PostgreSQL container
     try:
         container = client.containers.run(
@@ -90,15 +96,15 @@ def docker_postgres():
                 "POSTGRES_PASSWORD": pg_password,
                 "POSTGRES_DB": pg_db,
             },
-            ports={
-                '5432/tcp': port
-            },
+            ports={"5432/tcp": port},
             remove=True,  # Auto-remove container when stopped
         )
     except APIError as e:
         # If there's still an issue, try with a random port as a last resort
         if "port is already allocated" in str(e):
-            logger.warning(f"Port {port} is still in use. Trying with a completely random port.")
+            logger.warning(
+                f"Port {port} is still in use. Trying with a completely random port."
+            )
             port = get_free_port()
             try:
                 container = client.containers.run(
@@ -110,16 +116,16 @@ def docker_postgres():
                         "POSTGRES_PASSWORD": pg_password,
                         "POSTGRES_DB": pg_db,
                     },
-                    ports={
-                        '5432/tcp': port
-                    },
+                    ports={"5432/tcp": port},
                     remove=True,
                 )
             except Exception as inner_e:
-                raise RuntimeError(f"Failed to start PostgreSQL container with random port: {inner_e}") from e
+                raise RuntimeError(
+                    f"Failed to start PostgreSQL container with random port: {inner_e}"
+                ) from e
         else:
             raise RuntimeError(f"Failed to start PostgreSQL container: {e}")
-    
+
     # Wait for PostgreSQL to be ready
     max_retries = 30
     retry_interval = 1
@@ -127,7 +133,7 @@ def docker_postgres():
         container.reload()  # Refresh container status
         if container.status != "running":
             raise RuntimeError(f"Container failed to start: {container.status}")
-        
+
         # Try to connect to PostgreSQL
         try:
             conn = socket.create_connection(("localhost", port), timeout=1)
@@ -138,10 +144,10 @@ def docker_postgres():
                 container.stop()
                 raise RuntimeError("Failed to connect to PostgreSQL container")
             time.sleep(retry_interval)
-    
+
     # Wait a bit more to ensure PostgreSQL is fully initialized
     time.sleep(2)
-    
+
     # Yield connection details
     connection_info = {
         "host": "localhost",
@@ -150,9 +156,9 @@ def docker_postgres():
         "password": pg_password,
         "database": pg_db,
     }
-    
+
     yield connection_info
-    
+
     # Cleanup: stop the container
     try:
         container.stop()
@@ -182,49 +188,69 @@ async def db_connection(docker_postgres):
     await conn.conn.execute("DROP TABLE IF EXISTS article CASCADE", timeout=30.0)
     await conn.conn.execute("DROP TABLE IF EXISTS employee CASCADE", timeout=30.0)
     await conn.conn.execute("DROP TABLE IF EXISTS department CASCADE", timeout=30.0)
-    await conn.conn.execute("DROP TABLE IF EXISTS projectassignment CASCADE", timeout=30.0)
-    await conn.conn.execute("DROP TABLE IF EXISTS employeemetadata CASCADE", timeout=30.0)
-    await conn.conn.execute("DROP TABLE IF EXISTS functiondemomodel CASCADE", timeout=30.0)
+    await conn.conn.execute(
+        "DROP TABLE IF EXISTS projectassignment CASCADE", timeout=30.0
+    )
+    await conn.conn.execute(
+        "DROP TABLE IF EXISTS employeemetadata CASCADE", timeout=30.0
+    )
+    await conn.conn.execute(
+        "DROP TABLE IF EXISTS functiondemomodel CASCADE", timeout=30.0
+    )
     await conn.conn.execute("DROP TABLE IF EXISTS demomodela CASCADE", timeout=30.0)
     await conn.conn.execute("DROP TABLE IF EXISTS demomodelb CASCADE", timeout=30.0)
     await conn.conn.execute("DROP TABLE IF EXISTS jsondemo CASCADE", timeout=30.0)
-    await conn.conn.execute("DROP TABLE IF EXISTS complextypedemo CASCADE", timeout=30.0)
+    await conn.conn.execute(
+        "DROP TABLE IF EXISTS complextypedemo CASCADE", timeout=30.0
+    )
     await conn.conn.execute("DROP TYPE IF EXISTS statusenum CASCADE", timeout=30.0)
     await conn.conn.execute("DROP TYPE IF EXISTS employeestatus CASCADE", timeout=30.0)
 
     # Create tables
-    await conn.conn.execute("""
+    await conn.conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS userdemo (
             id SERIAL PRIMARY KEY,
             name TEXT,
             email TEXT
         )
-    """, timeout=30.0)
+    """,
+        timeout=30.0,
+    )
 
-    await conn.conn.execute("""
+    await conn.conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS artifactdemo (
             id SERIAL PRIMARY KEY,
             title TEXT,
             user_id INT REFERENCES userdemo(id)
         )
-    """, timeout=30.0)
+    """,
+        timeout=30.0,
+    )
 
-    await conn.conn.execute("""
+    await conn.conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS complexdemo (
             id SERIAL PRIMARY KEY,
             string_list TEXT[],
             json_data JSON
         )
-    """, timeout=30.0)
+    """,
+        timeout=30.0,
+    )
 
-    await conn.conn.execute("""
+    await conn.conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS article (
             id SERIAL PRIMARY KEY,
             title TEXT,
             content TEXT,
             summary TEXT
         )
-    """, timeout=30.0)
+    """,
+        timeout=30.0,
+    )
 
     # Create each index separately to handle errors better
     yield conn
@@ -236,13 +262,21 @@ async def db_connection(docker_postgres):
     await conn.conn.execute("DROP TABLE IF EXISTS article CASCADE", timeout=30.0)
     await conn.conn.execute("DROP TABLE IF EXISTS employee CASCADE", timeout=30.0)
     await conn.conn.execute("DROP TABLE IF EXISTS department CASCADE", timeout=30.0)
-    await conn.conn.execute("DROP TABLE IF EXISTS projectassignment CASCADE", timeout=30.0)
-    await conn.conn.execute("DROP TABLE IF EXISTS employeemetadata CASCADE", timeout=30.0)
-    await conn.conn.execute("DROP TABLE IF EXISTS functiondemomodel CASCADE", timeout=30.0)
+    await conn.conn.execute(
+        "DROP TABLE IF EXISTS projectassignment CASCADE", timeout=30.0
+    )
+    await conn.conn.execute(
+        "DROP TABLE IF EXISTS employeemetadata CASCADE", timeout=30.0
+    )
+    await conn.conn.execute(
+        "DROP TABLE IF EXISTS functiondemomodel CASCADE", timeout=30.0
+    )
     await conn.conn.execute("DROP TABLE IF EXISTS demomodela CASCADE", timeout=30.0)
     await conn.conn.execute("DROP TABLE IF EXISTS demomodelb CASCADE", timeout=30.0)
     await conn.conn.execute("DROP TABLE IF EXISTS jsondemo CASCADE", timeout=30.0)
-    await conn.conn.execute("DROP TABLE IF EXISTS complextypedemo CASCADE", timeout=30.0)
+    await conn.conn.execute(
+        "DROP TABLE IF EXISTS complextypedemo CASCADE", timeout=30.0
+    )
     await conn.conn.execute("DROP TYPE IF EXISTS statusenum CASCADE", timeout=30.0)
     await conn.conn.execute("DROP TYPE IF EXISTS employeestatus CASCADE", timeout=30.0)
     await conn.conn.close()
@@ -252,15 +286,15 @@ async def db_connection(docker_postgres):
 async def indexed_db_connection(db_connection: DBConnection):
     await db_connection.conn.execute(
         "CREATE INDEX IF NOT EXISTS article_title_tsv_idx ON article USING GIN (to_tsvector('english', title))",
-        timeout=30.0
+        timeout=30.0,
     )
     await db_connection.conn.execute(
         "CREATE INDEX IF NOT EXISTS article_content_tsv_idx ON article USING GIN (to_tsvector('english', content))",
-        timeout=30.0
+        timeout=30.0,
     )
     await db_connection.conn.execute(
         "CREATE INDEX IF NOT EXISTS article_summary_tsv_idx ON article USING GIN (to_tsvector('english', summary))",
-        timeout=30.0
+        timeout=30.0,
     )
 
     yield db_connection
@@ -270,8 +304,7 @@ async def indexed_db_connection(db_connection: DBConnection):
 async def clear_table(db_connection):
     # Clear all tables and reset sequences
     await db_connection.conn.execute(
-        "TRUNCATE TABLE userdemo, article RESTART IDENTITY CASCADE",
-        timeout=30.0
+        "TRUNCATE TABLE userdemo, article RESTART IDENTITY CASCADE", timeout=30.0
     )
 
 
@@ -291,7 +324,7 @@ async def clear_all_database_objects(db_connection: DBConnection):
             END LOOP;
         END $$;
     """,
-        timeout=30.0
+        timeout=30.0,
     )
 
     # Step 2: Drop all custom types in the public schema
@@ -305,7 +338,7 @@ async def clear_all_database_objects(db_connection: DBConnection):
             END LOOP;
         END $$;
     """,
-        timeout=30.0
+        timeout=30.0,
     )
 
 
