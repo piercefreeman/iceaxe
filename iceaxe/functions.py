@@ -90,23 +90,30 @@ class FunctionMetadata(ComparisonBase):
     Optional alias for the function result in the query
     """
 
+    placeholders: list[Any] | None = None
+    """
+    Values to be substituted in the query for parameterized queries
+    """
+
     def __init__(
         self,
         literal: QueryLiteral,
         original_field: DBFieldClassDefinition,
         local_name: str | None = None,
+        placeholders: list[Any] | None = None,
     ):
         self.literal = literal
         self.original_field = original_field
         self.local_name = local_name
+        self.placeholders = placeholders
 
     def to_query(self):
         """
         Converts the function metadata to its SQL representation.
 
-        :return: A tuple of the SQL literal and an empty list of variables
+        :return: A tuple of the SQL literal and the list of placeholder values
         """
-        return self.literal, []
+        return self.literal, self.placeholders or []
 
 
 class TSQueryFunctionMetadata(FunctionMetadata):
@@ -823,6 +830,77 @@ class FunctionBuilder:
                 original_field=field_metadata.original_field,
             )
         return cast(str, metadata)
+
+    def in_(self, field: Any, values: list[Any] | Any) -> FieldComparison:
+        """
+        Checks if a field's value is in a list of values or another query.
+
+        Note: Since 'in' is a Python keyword, this method can only be accessed via the 'in_' name.
+
+        :param field: The field to check
+        :param values: A list of values or a subquery to check against
+        :return: A comparison object that can be used with where()
+
+        ```python {{sticky: True}}
+        # Check if user status is in a list of values
+        active_or_pending = await conn.execute(
+            select(User).where(func.in_(User.status, ["active", "pending"]))
+        )
+
+        # Check if user ID is in a subquery
+        subquery = select(Order.user_id).where(Order.status == "completed")
+        has_orders = await conn.execute(
+            select(User).where(func.in_(User.id, subquery))
+        )
+        ```
+        """
+        from iceaxe.comparison import ComparisonType, FieldComparison
+
+        metadata = self._column_to_metadata(field)
+
+        # Create a custom implementation of to_query that formats the SQL correctly
+        class CustomInFieldComparison(FieldComparison):
+            def __init__(self, left, values, is_subquery=False):
+                super().__init__(left=left, comparison=ComparisonType.IN, right=values)
+                self.values = values
+                self.is_subquery = is_subquery
+
+            def to_query(self, start: int = 1) -> tuple[QueryLiteral, list[Any]]:
+                field, left_vars = self.left.to_query()
+                variables = left_vars.copy() if left_vars else []
+
+                if self.is_subquery:
+                    # Handle a subquery
+                    subquery, subparams = self.values.build()
+                    query = QueryLiteral(f"{field} IN ({subquery})")
+                    return query, subparams
+                elif isinstance(self.values, list):
+                    # For lists, we need to generate placeholders for each value
+                    placeholders = []
+                    for value in self.values:
+                        variable_offset = len(variables) + start
+                        placeholders.append(f"${variable_offset}")
+                        variables.append(value)
+
+                    placeholders_str = ", ".join(placeholders)
+                    query = QueryLiteral(f"{field} IN ({placeholders_str})")
+                    return query, variables
+                else:
+                    # Handle a single value
+                    variable_offset = len(variables) + start
+                    variables.append(self.values)
+                    query = QueryLiteral(f"{field} IN (${variable_offset})")
+                    return query, variables
+
+        if isinstance(values, list):
+            # Use our custom implementation for lists
+            return CustomInFieldComparison(metadata, values)
+        elif hasattr(values, "build") and callable(getattr(values, "build")):
+            # It's a QueryBuilder object (subquery)
+            return CustomInFieldComparison(metadata, values, is_subquery=True)
+        else:
+            # Single value or other
+            return CustomInFieldComparison(metadata, values)
 
     @staticmethod
     def _column_to_metadata(field: Any) -> FunctionMetadata:
