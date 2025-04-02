@@ -22,6 +22,12 @@ dev = [
     "ruff>=0.11.0",
 ]
 
+[dependency-groups]
+dev = [
+    "docker>=7.1.0",
+]
+
+
 [build-system]
 requires = ["setuptools>=61", "cython>=3.0.0"]
 build-backend = "setuptools.build_meta"
