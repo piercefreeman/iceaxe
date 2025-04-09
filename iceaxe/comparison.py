@@ -99,6 +99,11 @@ class ComparisonType(StrEnum):
     NOT NULL comparison
     """
 
+    IS_DISTINCT_FROM = "IS DISTINCT FROM"
+    """
+    IS DISTINCT FROM comparison
+    """
+
 
 class ComparisonGroupType(StrEnum):
     """
@@ -382,6 +387,13 @@ class ComparisonBase(ABC, Generic[J]):
         :return: A field comparison object
         """
         return self._compare(ComparisonType.NOT_IN, other)  # type: ignore
+
+    def is_distinct_from(self, other: Any) -> bool:
+        """
+        Implements SQL IS DISTINCT FROM operator.
+        Checks if the field's value is distinct from another value.
+        """
+        return self._compare(ComparisonType.IS_DISTINCT_FROM, other)  # type: ignore
 
     def like(
         self: "ComparisonBase[str] | ComparisonBase[str | None]", other: str
