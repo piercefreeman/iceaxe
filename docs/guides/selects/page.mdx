@@ -89,12 +89,12 @@ If you need more control over the comparison behavior, you can explicitly use th
 
 ```python
 # Explicitly use non-null-safe comparisons
-query = select(Employee).where(column(Employee.manager_id).equals(None, null_safe=False))  # Uses = NULL
-query = select(Employee).where(column(Employee.manager_id).not_equals(None, null_safe=False))  # Uses != NULL
+query = select(Employee).where(column(Employee.manager_id).equals(None))  # Uses = NULL
+query = select(Employee).where(column(Employee.manager_id).not_equals(None))  # Uses != NULL
 
 # Explicitly use non-null-safe comparisons for columns
 query = select(Employee).where(
-    column(Employee.manager_id).equals(Employee.supervisor_id, null_safe=False)  # Uses = instead of IS NOT DISTINCT FROM
+    column(Employee.manager_id).equals(Employee.supervisor_id)  # Uses = instead of IS NOT DISTINCT FROM
 )
 ```
 

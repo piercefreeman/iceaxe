@@ -312,22 +312,32 @@ class ComparisonBase(ABC, Generic[J]):
     def __eq__(self, other):  # type: ignore
         """
         Implements equality comparison, closer to Python's == operator.
-        Handles literal NULL values and null column comparison.
+        Maps to SQL '=' or 'IS' for NULL comparisons.
+        Maps to SQL 'IS NOT DISTINCT FROM' for column comparisons.
 
         :param other: Value to compare against
         :return: A field comparison object
         """
-        return self.equals(other, null_safe=True)
+        if other is None:
+            return self.is_(None)
+        elif is_column(other):
+            return self.is_not_distinct_from(other)
+        return self.equals(other)
 
     def __ne__(self, other):  # type: ignore
         """
         Implements inequality comparison, closer to Python's != operator.
-        Handles literal NULL values and null column comparison.
+        Maps to SQL '!=' or 'IS NOT' for NULL comparisons.
+        Maps to SQL 'IS DISTINCT FROM' for column comparisons.
 
         :param other: Value to compare against
         :return: A field comparison object
         """
-        return self.not_equals(other, null_safe=True)
+        if other is None:
+            return self.is_not(None)
+        elif is_column(other):
+            return self.is_distinct_from(other)
+        return self.not_equals(other)
 
     def __lt__(self, other):
         """
@@ -369,37 +379,51 @@ class ComparisonBase(ABC, Generic[J]):
         """
         return self._compare(ComparisonType.GE, other)
 
-    def equals(self, other: Any, null_safe: bool = False) -> bool:
+    def equals(self, other: Any) -> bool:
         """
         Implements equality comparison (==).
-        Maps to SQL '=' or 'IS' for NULL comparisons.
-        Maps to SQL 'IS NOT DISTINCT FROM' for column comparisons.
 
         :param other: Value to compare against
         :return: A field comparison object
         """
-        if null_safe:
-            if other is None:
-                return self._compare(ComparisonType.IS, None)  # type: ignore
-            elif is_column(other):
-                return self._compare(ComparisonType.IS_NOT_DISTINCT_FROM, other)  # type: ignore
         return self._compare(ComparisonType.EQ, other)  # type: ignore
 
-    def not_equals(self, other: Any, null_safe: bool = False) -> bool:
+    def not_equals(self, other: Any) -> bool:
         """
         Implements inequality comparison (!=).
-        Maps to SQL '!=' or 'IS NOT' for NULL comparisons.
-        Maps to SQL 'IS DISTINCT FROM' for column comparisons.
 
         :param other: Value to compare against
         :return: A field comparison object
         """
-        if null_safe:
-            if other is None:
-                return self._compare(ComparisonType.IS_NOT, None)  # type: ignore
-            elif is_column(other):
-                return self._compare(ComparisonType.IS_DISTINCT_FROM, other)  # type: ignore
         return self._compare(ComparisonType.NE, other)  # type: ignore
+
+    def is_(self, other: Any) -> bool:
+        """
+        Implements SQL IS operator.
+        Checks if the field's value is NULL.
+        """
+        return self._compare(ComparisonType.IS, other)  # type: ignore
+
+    def is_not(self, other: Any) -> bool:
+        """
+        Implements SQL IS NOT operator.
+        Checks if the field's value is not NULL.
+        """
+        return self._compare(ComparisonType.IS_NOT, other)  # type: ignore
+
+    def is_distinct_from(self, other: Any) -> bool:
+        """
+        Implements SQL IS DISTINCT FROM operator.
+        Checks if the field's value is distinct from another value.
+        """
+        return self._compare(ComparisonType.IS_DISTINCT_FROM, other)  # type: ignore
+
+    def is_not_distinct_from(self, other: Any) -> bool:
+        """
+        Implements SQL IS NOT DISTINCT FROM operator.
+        Checks if the field's value is not distinct from another value.
+        """
+        return self._compare(ComparisonType.IS_NOT_DISTINCT_FROM, other)  # type: ignore
 
     def in_(self, other: Sequence[J]) -> bool:
         """
