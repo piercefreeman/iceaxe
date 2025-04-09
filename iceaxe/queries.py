@@ -677,9 +677,12 @@ class QueryBuilder(Generic[P, QueryType]):
                 f"Invalid join condition: {on}, should be MyTable.column == OtherTable.column"
             )
 
-        on_left, _ = on.left.to_query()
-        comparison = QueryLiteral(on.comparison.value)
-        on_right, _ = on.right.to_query()
+        # Let the comparison update to handle its current usage in a join
+        on_join = on.force_join_constraints()
+
+        on_left, _ = on_join.left.to_query()
+        comparison = QueryLiteral(on_join.comparison.value)
+        on_right, _ = on_join.right.to_query()
 
         join_sql = f"{join_type} JOIN {sql(table)} ON {on_left} {comparison} {on_right}"
         self._join_clauses.append(join_sql)

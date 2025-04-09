@@ -181,6 +181,14 @@ class FieldComparison(Generic[T]):
     The right side of the comparison (can be a value or another field)
     """
 
+    python_expression: bool = False
+    """
+    Implicit comparisons are created from Python expressions (like col1 == col2). If this
+    flag is False, it means the user explicitly used one of the column() helper functions like
+    .equals(), .not_equals(), etc.
+
+    """
+
     def to_query(self, start: int = 1) -> tuple[QueryLiteral, list[Any]]:
         """
         Converts the comparison to its SQL representation.
@@ -219,6 +227,24 @@ class FieldComparison(Generic[T]):
                 value = QueryLiteral(f"${variable_offset}")
 
         return QueryLiteral(f"{field} {comparison.value} {value}"), variables
+
+    def force_join_constraints(self):
+        """
+        Set the context of the comparison to be used in a join. This places certain constraints
+        on the comparison operations that can be applied, like using equals for columns instead
+        of IS DISTINCT FROM.
+
+        """
+        comparison = self.comparison
+
+        # Only if we were created implicitly should we modify the comparison type
+        if self.python_expression:
+            if self.comparison == ComparisonType.IS_DISTINCT_FROM:
+                comparison = ComparisonType.NE
+            elif self.comparison == ComparisonType.IS_NOT_DISTINCT_FROM:
+                comparison = ComparisonType.EQ
+
+        return FieldComparison(left=self.left, comparison=comparison, right=self.right)
 
 
 @dataclass
@@ -318,11 +344,17 @@ class ComparisonBase(ABC, Generic[J]):
         :param other: Value to compare against
         :return: A field comparison object
         """
+        raw_comparison: bool | None = None
         if other is None:
-            return self.is_(None)
+            raw_comparison = self.is_(None)
         elif is_column(other):
-            return self.is_not_distinct_from(other)
-        return self.equals(other)
+            raw_comparison = self.is_not_distinct_from(other)
+
+        comparison: FieldComparison[Self] = (
+            raw_comparison if raw_comparison is not None else self.equals(other)
+        )  # type: ignore
+        comparison.python_expression = True
+        return comparison
 
     def __ne__(self, other):  # type: ignore
         """
@@ -333,11 +365,17 @@ class ComparisonBase(ABC, Generic[J]):
         :param other: Value to compare against
         :return: A field comparison object
         """
+        raw_comparison: bool | None = None
         if other is None:
-            return self.is_not(None)
+            raw_comparison = self.is_not(None)
         elif is_column(other):
-            return self.is_distinct_from(other)
-        return self.not_equals(other)
+            raw_comparison = self.is_distinct_from(other)
+
+        comparison: FieldComparison[Self] = (
+            raw_comparison if raw_comparison is not None else self.not_equals(other)
+        )  # type: ignore
+        comparison.python_expression = True
+        return comparison
 
     def __lt__(self, other):
         """
@@ -347,7 +385,9 @@ class ComparisonBase(ABC, Generic[J]):
         :param other: Value to compare against
         :return: A field comparison object
         """
-        return self._compare(ComparisonType.LT, other)
+        comparison = self._compare(ComparisonType.LT, other)
+        comparison.python_expression = True
+        return comparison
 
     def __le__(self, other):
         """
@@ -357,7 +397,9 @@ class ComparisonBase(ABC, Generic[J]):
         :param other: Value to compare against
         :return: A field comparison object
         """
-        return self._compare(ComparisonType.LE, other)
+        comparison = self._compare(ComparisonType.LE, other)
+        comparison.python_expression = True
+        return comparison
 
     def __gt__(self, other):
         """
@@ -367,7 +409,9 @@ class ComparisonBase(ABC, Generic[J]):
         :param other: Value to compare against
         :return: A field comparison object
         """
-        return self._compare(ComparisonType.GT, other)
+        comparison = self._compare(ComparisonType.GT, other)
+        comparison.python_expression = True
+        return comparison
 
     def __ge__(self, other):
         """
@@ -377,7 +421,9 @@ class ComparisonBase(ABC, Generic[J]):
         :param other: Value to compare against
         :return: A field comparison object
         """
-        return self._compare(ComparisonType.GE, other)
+        comparison = self._compare(ComparisonType.GE, other)
+        comparison.python_expression = True
+        return comparison
 
     def equals(self, other: Any) -> bool:
         """

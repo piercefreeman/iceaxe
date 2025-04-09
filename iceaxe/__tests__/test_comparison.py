@@ -294,3 +294,63 @@ def test_default_eq_ne_are_null_safe(db_field: DBFieldClassDefinition):
     ne_col = db_field != other_field
     assert isinstance(ne_col, FieldComparison)
     assert ne_col.comparison == ComparisonType.IS_DISTINCT_FROM
+
+
+@pytest.mark.parametrize(
+    "magic_method,value",
+    [
+        ("__eq__", 5),
+        ("__ne__", 5),
+        ("__lt__", 5),
+        ("__le__", 5),
+        ("__gt__", 5),
+        ("__ge__", 5),
+    ],
+)
+def test_python_magic_methods_set_expression_flag(
+    db_field: DBFieldClassDefinition, magic_method: str, value: Any
+):
+    """
+    Test that all Python magic methods set python_expression to True
+    """
+    comparison = getattr(db_field, magic_method)(value)
+    assert isinstance(comparison, FieldComparison)
+    assert comparison.python_expression is True
+
+
+@pytest.mark.parametrize(
+    "initial_comparison, python_expression, expected_comparison",
+    [
+        (ComparisonType.IS_NOT_DISTINCT_FROM, True, ComparisonType.EQ),
+        (ComparisonType.IS_DISTINCT_FROM, True, ComparisonType.NE),
+        (
+            ComparisonType.IS_NOT_DISTINCT_FROM,
+            False,
+            ComparisonType.IS_NOT_DISTINCT_FROM,
+        ),
+        (ComparisonType.IS_DISTINCT_FROM, False, ComparisonType.IS_DISTINCT_FROM),
+    ],
+)
+def test_force_join_constraints(
+    initial_comparison: ComparisonType,
+    python_expression: bool,
+    expected_comparison: ComparisonType,
+):
+    """
+    Test that force_join_constraints correctly transforms comparison types
+    """
+    db_field = DBFieldClassDefinition(
+        root_model=TableBase, key="test_key", field_definition=DBFieldInfo()
+    )
+    other_field = DBFieldClassDefinition(
+        root_model=TableBase, key="other_key", field_definition=DBFieldInfo()
+    )
+
+    comparison = FieldComparison(
+        left=db_field,
+        comparison=initial_comparison,
+        right=other_field,
+        python_expression=python_expression,
+    )
+    forced = comparison.force_join_constraints()
+    assert forced.comparison == expected_comparison
