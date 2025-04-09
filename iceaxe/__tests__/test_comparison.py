@@ -28,6 +28,7 @@ def test_comparison_type_enum():
     assert ComparisonType.NOT_ILIKE == "NOT ILIKE"
     assert ComparisonType.IS == "IS"
     assert ComparisonType.IS_NOT == "IS NOT"
+    assert ComparisonType.IS_DISTINCT_FROM == "IS DISTINCT FROM"
 
 
 @pytest.fixture
@@ -133,6 +134,14 @@ def test_compare(db_field: DBFieldClassDefinition):
     assert result.right == 10
 
 
+def test_is_distinct_from(db_field: DBFieldClassDefinition):
+    result = db_field.is_distinct_from(5)
+    assert isinstance(result, FieldComparison)
+    assert result.left == db_field
+    assert result.comparison == ComparisonType.IS_DISTINCT_FROM
+    assert result.right == 5
+
+
 @pytest.mark.parametrize(
     "value",
     [
@@ -161,6 +170,7 @@ def test_comparison_with_different_types(db_field: DBFieldClassDefinition, value
         db_field.in_,
         db_field.not_in,
         db_field.like,
+        db_field.is_distinct_from,
     ]:
         result = method(value)
         assert isinstance(result, FieldComparison)
