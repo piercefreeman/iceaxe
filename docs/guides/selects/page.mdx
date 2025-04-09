@@ -56,6 +56,55 @@ are full Python objects; you can access and modify their attributes as you would
 other object. Once received, it's detached from the database connection unless you explicitly
 choose to save it. For more details on how to update data, see the page on [update statements](./inserts).
 
+## NULL Comparisons and Column Comparisons
+
+When working with columns that might contain NULL values, you need to be careful about how you compare them.
+In SQL, NULL values have special comparison rules:
+
+1. `NULL = NULL` returns NULL (not TRUE)
+2. `NULL != NULL` returns NULL (not FALSE)
+3. `NULL IS NULL` returns TRUE
+4. `NULL IS NOT NULL` returns FALSE
+
+These evaluate to different values than the same logic would in Python if you're comparing two variables. Consider this:
+
+1. `None == None` returns True
+2. `None != None` returns False
+3. `None is None` returns True
+4. `None is not None` returns False
+
+Iceaxe tries to match Python's intuitions. The standard comparison operators (`==` and `!=`) are "null-safe" by default:
+
+```python
+# These handle NULL values correctly automatically
+query = select(Employee).where(Employee.manager_id == None)  # Uses IS NULL
+query = select(Employee).where(Employee.manager_id != None)  # Uses IS NOT NULL
+
+# These also handle NULL values correctly when comparing columns
+query = select(Employee).where(Employee.manager_id == Employee.supervisor_id)  # Uses IS NOT DISTINCT FROM
+query = select(Employee).where(Employee.manager_id != Employee.supervisor_id)  # Uses IS DISTINCT FROM
+```
+
+If you need more control over the comparison behavior, you can explicitly use the `equals()` and `not_equals()` methods with `null_safe=False`:
+
+```python
+# Explicitly use non-null-safe comparisons
+query = select(Employee).where(column(Employee.manager_id).equals(None, null_safe=False))  # Uses = NULL
+query = select(Employee).where(column(Employee.manager_id).not_equals(None, null_safe=False))  # Uses != NULL
+
+# Explicitly use non-null-safe comparisons for columns
+query = select(Employee).where(
+    column(Employee.manager_id).equals(Employee.supervisor_id, null_safe=False)  # Uses = instead of IS NOT DISTINCT FROM
+)
+```
+
+The default null-safe behavior means:
+- When comparing with `None`, it automatically uses `IS` and `IS NOT`
+- When comparing columns that might contain NULL values, it automatically uses `IS [NOT] DISTINCT FROM`
+- This matches Python's behavior where `None == None` is `True` and `None != None` is `False`
+
+Most of the time, you'll want to use the default behavior as it handles NULL values in a way that matches Python's semantics. Only override this if you have a specific need for SQL's standard NULL comparison behavior.
+
 ## Chaining conditions
 
 By default, conditions are combined with an `AND` operator. If you want to combine conditions with an `OR`

@@ -104,6 +104,11 @@ class ComparisonType(StrEnum):
     IS DISTINCT FROM comparison
     """
 
+    IS_NOT_DISTINCT_FROM = "IS NOT DISTINCT FROM"
+    """
+    IS NOT DISTINCT FROM comparison
+    """
+
 
 class ComparisonGroupType(StrEnum):
     """
@@ -306,27 +311,23 @@ class ComparisonBase(ABC, Generic[J]):
 
     def __eq__(self, other):  # type: ignore
         """
-        Implements equality comparison (==).
-        Maps to SQL '=' or 'IS' for NULL comparisons.
+        Implements equality comparison, closer to Python's == operator.
+        Handles literal NULL values and null column comparison.
 
         :param other: Value to compare against
         :return: A field comparison object
         """
-        if other is None:
-            return self._compare(ComparisonType.IS, None)
-        return self._compare(ComparisonType.EQ, other)
+        return self.equals(other, null_safe=True)
 
     def __ne__(self, other):  # type: ignore
         """
-        Implements inequality comparison (!=).
-        Maps to SQL '!=' or 'IS NOT' for NULL comparisons.
+        Implements inequality comparison, closer to Python's != operator.
+        Handles literal NULL values and null column comparison.
 
         :param other: Value to compare against
         :return: A field comparison object
         """
-        if other is None:
-            return self._compare(ComparisonType.IS_NOT, None)
-        return self._compare(ComparisonType.NE, other)
+        return self.not_equals(other, null_safe=True)
 
     def __lt__(self, other):
         """
@@ -368,6 +369,38 @@ class ComparisonBase(ABC, Generic[J]):
         """
         return self._compare(ComparisonType.GE, other)
 
+    def equals(self, other: Any, null_safe: bool = False) -> bool:
+        """
+        Implements equality comparison (==).
+        Maps to SQL '=' or 'IS' for NULL comparisons.
+        Maps to SQL 'IS NOT DISTINCT FROM' for column comparisons.
+
+        :param other: Value to compare against
+        :return: A field comparison object
+        """
+        if null_safe:
+            if other is None:
+                return self._compare(ComparisonType.IS, None)  # type: ignore
+            elif is_column(other):
+                return self._compare(ComparisonType.IS_NOT_DISTINCT_FROM, other)  # type: ignore
+        return self._compare(ComparisonType.EQ, other)  # type: ignore
+
+    def not_equals(self, other: Any, null_safe: bool = False) -> bool:
+        """
+        Implements inequality comparison (!=).
+        Maps to SQL '!=' or 'IS NOT' for NULL comparisons.
+        Maps to SQL 'IS DISTINCT FROM' for column comparisons.
+
+        :param other: Value to compare against
+        :return: A field comparison object
+        """
+        if null_safe:
+            if other is None:
+                return self._compare(ComparisonType.IS_NOT, None)  # type: ignore
+            elif is_column(other):
+                return self._compare(ComparisonType.IS_DISTINCT_FROM, other)  # type: ignore
+        return self._compare(ComparisonType.NE, other)  # type: ignore
+
     def in_(self, other: Sequence[J]) -> bool:
         """
         Implements SQL IN operator.
@@ -387,13 +420,6 @@ class ComparisonBase(ABC, Generic[J]):
         :return: A field comparison object
         """
         return self._compare(ComparisonType.NOT_IN, other)  # type: ignore
-
-    def is_distinct_from(self, other: Any) -> bool:
-        """
-        Implements SQL IS DISTINCT FROM operator.
-        Checks if the field's value is distinct from another value.
-        """
-        return self._compare(ComparisonType.IS_DISTINCT_FROM, other)  # type: ignore
 
     def like(
         self: "ComparisonBase[str] | ComparisonBase[str | None]", other: str

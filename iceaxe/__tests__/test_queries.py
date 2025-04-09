@@ -57,7 +57,7 @@ def test_where_columns():
         QueryBuilder().select(UserDemo.id).where(UserDemo.name == UserDemo.email)
     )
     assert new_query.build() == (
-        'SELECT "userdemo"."id" AS "userdemo_id" FROM "userdemo" WHERE "userdemo"."name" = "userdemo"."email"',
+        'SELECT "userdemo"."id" AS "userdemo_id" FROM "userdemo" WHERE "userdemo"."name" IS NOT DISTINCT FROM "userdemo"."email"',
         [],
     )
 
@@ -102,7 +102,7 @@ def test_join():
         .join(ArtifactDemo, UserDemo.id == ArtifactDemo.user_id)
     )
     assert new_query.build() == (
-        'SELECT "userdemo"."id" AS "userdemo_id", "artifactdemo"."title" AS "artifactdemo_title" FROM "userdemo" INNER JOIN "artifactdemo" ON "userdemo"."id" = "artifactdemo"."user_id"',
+        'SELECT "userdemo"."id" AS "userdemo_id", "artifactdemo"."title" AS "artifactdemo_title" FROM "userdemo" INNER JOIN "artifactdemo" ON "userdemo"."id" IS NOT DISTINCT FROM "artifactdemo"."user_id"',
         [],
     )
 
@@ -114,7 +114,7 @@ def test_left_join():
         .join(ArtifactDemo, UserDemo.id == ArtifactDemo.user_id, "LEFT")
     )
     assert new_query.build() == (
-        'SELECT "userdemo"."id" AS "userdemo_id", "artifactdemo"."title" AS "artifactdemo_title" FROM "userdemo" LEFT JOIN "artifactdemo" ON "userdemo"."id" = "artifactdemo"."user_id"',
+        'SELECT "userdemo"."id" AS "userdemo_id", "artifactdemo"."title" AS "artifactdemo_title" FROM "userdemo" LEFT JOIN "artifactdemo" ON "userdemo"."id" IS NOT DISTINCT FROM "artifactdemo"."user_id"',
         [],
     )
 
@@ -369,7 +369,7 @@ def test_and_group():
         )
     )
     assert new_query.build() == (
-        'SELECT "userdemo"."id" AS "userdemo_id" FROM "userdemo" WHERE ("userdemo"."name" = "userdemo"."email" AND "userdemo"."id" > $1)',
+        'SELECT "userdemo"."id" AS "userdemo_id" FROM "userdemo" WHERE ("userdemo"."name" IS NOT DISTINCT FROM "userdemo"."email" AND "userdemo"."id" > $1)',
         [0],
     )
 
@@ -386,7 +386,7 @@ def test_or_group():
         )
     )
     assert new_query.build() == (
-        'SELECT "userdemo"."id" AS "userdemo_id" FROM "userdemo" WHERE ("userdemo"."name" = "userdemo"."email" OR "userdemo"."id" > $1)',
+        'SELECT "userdemo"."id" AS "userdemo_id" FROM "userdemo" WHERE ("userdemo"."name" IS NOT DISTINCT FROM "userdemo"."email" OR "userdemo"."id" > $1)',
         [0],
     )
 
@@ -406,7 +406,7 @@ def test_nested_and_or_group():
         )
     )
     assert new_query.build() == (
-        'SELECT "userdemo"."id" AS "userdemo_id" FROM "userdemo" WHERE (("userdemo"."name" = "userdemo"."email" OR "userdemo"."id" > $1) AND "userdemo"."id" < $2)',
+        'SELECT "userdemo"."id" AS "userdemo_id" FROM "userdemo" WHERE (("userdemo"."name" IS NOT DISTINCT FROM "userdemo"."email" OR "userdemo"."id" > $1) AND "userdemo"."id" < $2)',
         [0, 10],
     )
 
@@ -525,7 +525,7 @@ def test_for_update_multiple_of():
     assert new_query.build() == (
         'SELECT "userdemo"."id" AS "userdemo_id", "userdemo"."name" AS "userdemo_name", "userdemo"."email" AS "userdemo_email", '
         '"artifactdemo"."id" AS "artifactdemo_id", "artifactdemo"."title" AS "artifactdemo_title", "artifactdemo"."user_id" AS "artifactdemo_user_id" '
-        'FROM "userdemo" INNER JOIN "artifactdemo" ON "userdemo"."id" = "artifactdemo"."user_id" '
+        'FROM "userdemo" INNER JOIN "artifactdemo" ON "userdemo"."id" IS NOT DISTINCT FROM "artifactdemo"."user_id" '
         'FOR UPDATE OF "artifactdemo", "userdemo"',
         [],
     )

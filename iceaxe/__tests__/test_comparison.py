@@ -29,6 +29,7 @@ def test_comparison_type_enum():
     assert ComparisonType.IS == "IS"
     assert ComparisonType.IS_NOT == "IS NOT"
     assert ComparisonType.IS_DISTINCT_FROM == "IS DISTINCT FROM"
+    assert ComparisonType.IS_NOT_DISTINCT_FROM == "IS NOT DISTINCT FROM"
 
 
 @pytest.fixture
@@ -134,14 +135,6 @@ def test_compare(db_field: DBFieldClassDefinition):
     assert result.right == 10
 
 
-def test_is_distinct_from(db_field: DBFieldClassDefinition):
-    result = db_field.is_distinct_from(5)
-    assert isinstance(result, FieldComparison)
-    assert result.left == db_field
-    assert result.comparison == ComparisonType.IS_DISTINCT_FROM
-    assert result.right == 5
-
-
 @pytest.mark.parametrize(
     "value",
     [
@@ -170,7 +163,6 @@ def test_comparison_with_different_types(db_field: DBFieldClassDefinition, value
         db_field.in_,
         db_field.not_in,
         db_field.like,
-        db_field.is_distinct_from,
     ]:
         result = method(value)
         assert isinstance(result, FieldComparison)
@@ -274,3 +266,115 @@ def test_in_not_in_formatting(comparison_type: ComparisonType, expected_sql: str
     assert isinstance(query, QueryLiteral)
     assert str(query) == expected_sql
     assert variables == [["John", "Jane"]]
+
+
+@pytest.mark.parametrize(
+    "value,null_safe,expected_comparison",
+    [
+        (None, True, ComparisonType.IS),  # None with null_safe -> IS NULL
+        (None, False, ComparisonType.EQ),  # None without null_safe -> = NULL
+        (5, True, ComparisonType.EQ),  # Regular value with null_safe -> =
+        (5, False, ComparisonType.EQ),  # Regular value without null_safe -> =
+        (
+            DBFieldClassDefinition(
+                root_model=TableBase, key="other_key", field_definition=DBFieldInfo()
+            ),
+            True,
+            ComparisonType.IS_NOT_DISTINCT_FROM,
+        ),  # Column with null_safe -> IS NOT DISTINCT FROM
+        (
+            DBFieldClassDefinition(
+                root_model=TableBase, key="other_key", field_definition=DBFieldInfo()
+            ),
+            False,
+            ComparisonType.EQ,
+        ),  # Column without null_safe -> =
+    ],
+)
+def test_equals_variations(
+    db_field: DBFieldClassDefinition,
+    value: Any,
+    null_safe: bool,
+    expected_comparison: ComparisonType,
+):
+    """
+    Test the equals method with different combinations of:
+    - NULL vs non-NULL values
+    - null_safe vs non-null-safe
+    - column vs non-column values
+    """
+    result = db_field.equals(value, null_safe=null_safe)
+    assert isinstance(result, FieldComparison)
+    assert result.left == db_field
+    assert result.comparison == expected_comparison
+    assert result.right == value
+
+
+@pytest.mark.parametrize(
+    "value,null_safe,expected_comparison",
+    [
+        (None, True, ComparisonType.IS_NOT),  # None with null_safe -> IS NOT NULL
+        (None, False, ComparisonType.NE),  # None without null_safe -> != NULL
+        (5, True, ComparisonType.NE),  # Regular value with null_safe -> !=
+        (5, False, ComparisonType.NE),  # Regular value without null_safe -> !=
+        (
+            DBFieldClassDefinition(
+                root_model=TableBase, key="other_key", field_definition=DBFieldInfo()
+            ),
+            True,
+            ComparisonType.IS_DISTINCT_FROM,
+        ),  # Column with null_safe -> IS DISTINCT FROM
+        (
+            DBFieldClassDefinition(
+                root_model=TableBase, key="other_key", field_definition=DBFieldInfo()
+            ),
+            False,
+            ComparisonType.NE,
+        ),  # Column without null_safe -> !=
+    ],
+)
+def test_not_equals_variations(
+    db_field: DBFieldClassDefinition,
+    value: Any,
+    null_safe: bool,
+    expected_comparison: ComparisonType,
+):
+    """
+    Test the not_equals method with different combinations of:
+    - NULL vs non-NULL values
+    - null_safe vs non-null-safe
+    - column vs non-column values
+    """
+    result = db_field.not_equals(value, null_safe=null_safe)
+    assert isinstance(result, FieldComparison)
+    assert result.left == db_field
+    assert result.comparison == expected_comparison
+    assert result.right == value
+
+
+def test_default_eq_ne_are_null_safe(db_field: DBFieldClassDefinition):
+    """
+    Test that the default == and != operators use null-safe comparisons
+    """
+    # Test == None uses IS NULL
+    eq_none = db_field == None  # noqa: E711
+    assert isinstance(eq_none, FieldComparison)
+    assert eq_none.comparison == ComparisonType.IS
+
+    # Test != None uses IS NOT NULL
+    ne_none = db_field != None  # noqa: E711
+    assert isinstance(ne_none, FieldComparison)
+    assert ne_none.comparison == ComparisonType.IS_NOT
+
+    # Test == column uses IS NOT DISTINCT FROM
+    other_field = DBFieldClassDefinition(
+        root_model=TableBase, key="other_key", field_definition=DBFieldInfo()
+    )
+    eq_col = db_field == other_field
+    assert isinstance(eq_col, FieldComparison)
+    assert eq_col.comparison == ComparisonType.IS_NOT_DISTINCT_FROM
+
+    # Test != column uses IS DISTINCT FROM
+    ne_col = db_field != other_field
+    assert isinstance(ne_col, FieldComparison)
+    assert ne_col.comparison == ComparisonType.IS_DISTINCT_FROM
