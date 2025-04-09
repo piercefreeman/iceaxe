@@ -28,6 +28,8 @@ def test_comparison_type_enum():
     assert ComparisonType.NOT_ILIKE == "NOT ILIKE"
     assert ComparisonType.IS == "IS"
     assert ComparisonType.IS_NOT == "IS NOT"
+    assert ComparisonType.IS_DISTINCT_FROM == "IS DISTINCT FROM"
+    assert ComparisonType.IS_NOT_DISTINCT_FROM == "IS NOT DISTINCT FROM"
 
 
 @pytest.fixture
@@ -264,3 +266,31 @@ def test_in_not_in_formatting(comparison_type: ComparisonType, expected_sql: str
     assert isinstance(query, QueryLiteral)
     assert str(query) == expected_sql
     assert variables == [["John", "Jane"]]
+
+
+def test_default_eq_ne_are_null_safe(db_field: DBFieldClassDefinition):
+    """
+    Test that the default == and != operators use null-safe comparisons
+    """
+    # Test == None uses IS NULL
+    eq_none = db_field == None  # noqa: E711
+    assert isinstance(eq_none, FieldComparison)
+    assert eq_none.comparison == ComparisonType.IS
+
+    # Test != None uses IS NOT NULL
+    ne_none = db_field != None  # noqa: E711
+    assert isinstance(ne_none, FieldComparison)
+    assert ne_none.comparison == ComparisonType.IS_NOT
+
+    # Test == column uses IS NOT DISTINCT FROM
+    other_field = DBFieldClassDefinition(
+        root_model=TableBase, key="other_key", field_definition=DBFieldInfo()
+    )
+    eq_col = db_field == other_field
+    assert isinstance(eq_col, FieldComparison)
+    assert eq_col.comparison == ComparisonType.IS_NOT_DISTINCT_FROM
+
+    # Test != column uses IS DISTINCT FROM
+    ne_col = db_field != other_field
+    assert isinstance(ne_col, FieldComparison)
+    assert ne_col.comparison == ComparisonType.IS_DISTINCT_FROM

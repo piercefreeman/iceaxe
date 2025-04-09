@@ -204,3 +204,6 @@ Temporary Items
 ### macOS Patch ###
 # iCloud generated files
 *.icloud
+
+# Build pipeline
+session_optimized.html
