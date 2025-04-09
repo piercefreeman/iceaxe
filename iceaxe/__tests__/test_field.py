@@ -1,5 +1,3 @@
-
-
 from iceaxe.base import TableBase
 from iceaxe.field import DBFieldClassDefinition, DBFieldInfo
 
