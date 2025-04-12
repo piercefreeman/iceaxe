@@ -263,18 +263,48 @@ class DatabaseHandler:
         }
 
     def convert(self, tables: list[Type[TableBase]]):
-        for model in sorted(tables, key=lambda model: model.get_table_name()):
-            for node in self.convert_table(model):
+        # First, identify all polymorphic base classes and their subclasses
+        polymorphic_bases = []
+        all_models = set(tables)  # Use a set to avoid duplicates
+
+        for model in tables:
+            # Check if this is a polymorphic base class
+            if (
+                hasattr(model, "get_discriminator_field")
+                and model.__name__ != "PolymorphicBase"
+            ):
+                polymorphic_bases.append(model)
+
+                # Add all subclasses to the set of models
+                if hasattr(model, "get_all_subclasses"):
+                    all_models.update(model.get_all_subclasses())
+
+        # Convert all models that should be included
+        for model in sorted(all_models, key=lambda model: model.get_table_name()):
+            # Skip processing subclasses of polymorphic bases, as their fields
+            # will be added to the base class table
+            if any(
+                issubclass(model, base) and model is not base
+                for base in polymorphic_bases
+            ):
+                continue
+
+            # For polymorphic base classes, we need to collect fields from all subclasses
+            nodes = self.convert_table(model, polymorphic_bases=polymorphic_bases)
+            for node in nodes:
                 yield (node.node, node.dependencies)
 
-    def convert_table(self, table: Type[TableBase]):
+    def convert_table(self, table: Type[TableBase], polymorphic_bases=None):
         # Handle the table itself
         table_nodes = self._yield_nodes(DBTable(table_name=table.get_table_name()))
         yield from table_nodes
 
+        # Get all fields for this table
+        all_fields = self.get_all_fields_for_table(table, polymorphic_bases)
+
         # Handle the columns
         all_column_nodes: list[NodeDefinition] = []
-        for field_name, field in table.get_client_fields().items():
+        for field_name, field in all_fields.items():
             column_nodes = self._yield_nodes(
                 self.convert_column(field_name, field, table), dependencies=table_nodes
             )
@@ -302,6 +332,63 @@ class DatabaseHandler:
                     self.handle_multiple_constraints(constraint, table),
                     dependencies=all_column_nodes,
                 )
+
+    def get_all_fields_for_table(self, table: Type[TableBase], polymorphic_bases=None):
+        """
+        Get all fields that should be included in this table, including fields from subclasses
+        if this is a polymorphic base class.
+        """
+        fields = table.get_client_fields()
+
+        # If this is a polymorphic base class, add fields from all subclasses
+        if polymorphic_bases and table in polymorphic_bases:
+            # Get all subclasses
+            subclasses = []
+            if hasattr(table, "get_all_subclasses"):
+                subclasses = table.get_all_subclasses()
+
+            # Add fields from subclasses
+            for subclass in subclasses:
+                if subclass is not table:  # Skip the base class itself
+                    for field_name, field_info in subclass.get_client_fields().items():
+                        # Skip fields that are already in the base class
+                        if field_name not in fields:
+                            # Make field nullable since it's from a subclass
+                            if (
+                                not field_info.primary_key
+                                and field_info.default is None
+                            ):
+                                # Create a copy of the field attributes without the DB-specific attributes
+                                # to avoid duplicate parameters
+                                attributes = field_info._attributes_set.copy()
+                                db_attrs = [
+                                    "primary_key",
+                                    "postgres_config",
+                                    "foreign_key",
+                                    "unique",
+                                    "index",
+                                    "check_expression",
+                                    "is_json",
+                                    "discriminator_type",
+                                ]
+                                for attr in db_attrs:
+                                    attributes.pop(attr, None)
+
+                                # Now extend the field without duplicate parameters
+                                field_info = DBFieldInfo(
+                                    primary_key=field_info.primary_key,
+                                    postgres_config=field_info.postgres_config,
+                                    foreign_key=field_info.foreign_key,
+                                    unique=field_info.unique,
+                                    index=field_info.index,
+                                    check_expression=field_info.check_expression,
+                                    is_json=field_info.is_json,
+                                    discriminator_type=field_info.discriminator_type,
+                                    **attributes,
+                                )
+                            fields[field_name] = field_info
+
+        return fields
 
     def convert_column(self, key: str, info: DBFieldInfo, table: Type[TableBase]):
         if info.annotation is None:
