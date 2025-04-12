@@ -563,6 +563,134 @@ def test_function_cast_enum():
     )
 
 
+def test_function_in():
+    """
+    Test the in_ function with a list of values.
+    """
+    # Test with direct in_ method
+    new_query = (
+        QueryBuilder()
+        .select(UserDemo)
+        .where(func.in_(UserDemo.name, ["John", "Jane", "Bob"]))
+    )
+    assert new_query.build() == (
+        'SELECT "userdemo"."id" AS "userdemo_id", "userdemo"."name" AS '
+        '"userdemo_name", "userdemo"."email" AS "userdemo_email" FROM "userdemo" '
+        'WHERE "userdemo"."name" IN ($1, $2, $3)',
+        ["John", "Jane", "Bob"],
+    )
+
+    # Test with a single value
+    new_query = QueryBuilder().select(UserDemo).where(func.in_(UserDemo.name, "John"))
+    assert new_query.build() == (
+        'SELECT "userdemo"."id" AS "userdemo_id", "userdemo"."name" AS '
+        '"userdemo_name", "userdemo"."email" AS "userdemo_email" FROM "userdemo" '
+        'WHERE "userdemo"."name" IN ($1)',
+        ["John"],
+    )
+
+    # Test with empty list
+    new_query = QueryBuilder().select(UserDemo).where(func.in_(UserDemo.name, []))
+    assert new_query.build() == (
+        'SELECT "userdemo"."id" AS "userdemo_id", "userdemo"."name" AS '
+        '"userdemo_name", "userdemo"."email" AS "userdemo_email" FROM "userdemo" '
+        'WHERE "userdemo"."name" IN ()',
+        [],
+    )
+
+
+def test_function_in_subquery():
+    """
+    Test the in_ function with a subquery.
+    """
+    # Create a subquery
+    subquery = (
+        QueryBuilder().select(ArtifactDemo.user_id).where(ArtifactDemo.title == "Test")
+    )
+
+    # Use the subquery with in_
+    new_query = QueryBuilder().select(UserDemo).where(func.in_(UserDemo.id, subquery))
+
+    assert new_query.build() == (
+        'SELECT "userdemo"."id" AS "userdemo_id", "userdemo"."name" AS '
+        '"userdemo_name", "userdemo"."email" AS "userdemo_email" FROM "userdemo" '
+        'WHERE "userdemo"."id" IN (SELECT "artifactdemo"."user_id" AS '
+        '"artifactdemo_user_id" FROM "artifactdemo" WHERE "artifactdemo"."title" = $1)',
+        ["Test"],
+    )
+
+
+def test_function_in_with_other_conditions():
+    """
+    Test the in_ function combined with other conditions.
+    """
+    # Test with AND conditions
+    new_query = (
+        QueryBuilder()
+        .select(UserDemo)
+        .where(func.in_(UserDemo.name, ["John", "Jane"]), UserDemo.id > 10)
+    )
+    assert new_query.build() == (
+        'SELECT "userdemo"."id" AS "userdemo_id", "userdemo"."name" AS '
+        '"userdemo_name", "userdemo"."email" AS "userdemo_email" FROM "userdemo" '
+        'WHERE "userdemo"."name" IN ($1, $2) AND "userdemo"."id" > $3',
+        ["John", "Jane", 10],
+    )
+
+    # Test with OR conditions using properly typed conditions
+    new_query = (
+        QueryBuilder()
+        .select(UserDemo)
+        .where(
+            or_(
+                UserDemo.name == "John",  # Use proper boolean comparison
+                UserDemo.id > 10,
+            )
+        )
+    )
+    assert new_query.build() == (
+        'SELECT "userdemo"."id" AS "userdemo_id", "userdemo"."name" AS '
+        '"userdemo_name", "userdemo"."email" AS "userdemo_email" FROM "userdemo" '
+        'WHERE ("userdemo"."name" = $1 OR "userdemo"."id" > $2)',
+        ["John", 10],
+    )
+
+
+def test_function_in_complex_queries():
+    """
+    Test the in_ function in more complex query scenarios.
+    """
+    # Test with multiple IN conditions
+    new_query = (
+        QueryBuilder()
+        .select(UserDemo)
+        .where(
+            func.in_(UserDemo.name, ["John", "Jane"]),
+            func.in_(UserDemo.email, ["john@example.com", "jane@example.com"]),
+        )
+    )
+    assert new_query.build() == (
+        'SELECT "userdemo"."id" AS "userdemo_id", "userdemo"."name" AS '
+        '"userdemo_name", "userdemo"."email" AS "userdemo_email" FROM "userdemo" '
+        'WHERE "userdemo"."name" IN ($1, $2) AND "userdemo"."email" IN ($3, $4)',
+        ["John", "Jane", "john@example.com", "jane@example.com"],
+    )
+
+    # Test with joins and IN condition
+    new_query = (
+        QueryBuilder()
+        .select((UserDemo.id, ArtifactDemo.title))
+        .join(ArtifactDemo, UserDemo.id == ArtifactDemo.user_id)
+        .where(func.in_(ArtifactDemo.title, ["Report", "Article", "Blog"]))
+    )
+    assert new_query.build() == (
+        'SELECT "userdemo"."id" AS "userdemo_id", "artifactdemo"."title" AS "artifactdemo_title" '
+        'FROM "userdemo" INNER JOIN "artifactdemo" ON "userdemo"."id" = "artifactdemo"."user_id" '
+        'WHERE "artifactdemo"."title" IN ($1, $2, $3)',
+        ["Report", "Article", "Blog"],
+    )
+
+
 def test_multiple_group_by():
     new_query = (
         QueryBuilder()

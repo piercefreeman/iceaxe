@@ -46,6 +46,29 @@ query and typically results in cleaner code.
 
 ---
 
+### SQL IN operator
+
+The `in_` function provides a convenient way to use SQL's `IN` operator to check if a field's value is contained in a list of values or a subquery.
+
+```python
+from iceaxe import func, select
+
+# Check if a field matches any values in a list
+active_users = await conn.execute(
+    select(User).where(func.in_(User.status, ["active", "verified", "premium"]))
+)
+
+# Check if a field matches any values in a subquery
+subquery = select(Order.user_id).where(Order.status == "completed")
+users_with_orders = await conn.execute(
+    select(User).where(func.in_(User.id, subquery))
+)
+```
+
+Note that since `in` is a Python keyword, this method can only be accessed using `in_`.
+
+---
+
 ## Conditions
 
 If you want to add conditions to your query, you can use the `where` method. If you pass multiple
