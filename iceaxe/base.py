@@ -152,7 +152,7 @@ class DBModelMetaclass(_model_construction.ModelMetaclass):
 
         :return: Dictionary of field names to field definitions
         """
-        return super().model_fields  # type: ignore
+        return getattr(self, "__pydantic_fields__", {})  # type: ignore
 
 
 class UniqueConstraint(BaseModel):
