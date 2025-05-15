@@ -7,6 +7,7 @@ import asyncpg
 import docker
 import pytest
 import pytest_asyncio
+from docker.client import DockerClient
 from docker.errors import APIError
 
 from iceaxe.base import DBModelMetaclass
@@ -24,7 +25,7 @@ def get_free_port():
         return s.getsockname()[1]
 
 
-def stop_containers_using_port(client, port):
+def stop_containers_using_port(client: DockerClient, port: int) -> bool:
     """Stop any containers using the specified port."""
     for container in client.containers.list():
         container_ports = container.attrs.get("HostConfig", {}).get("PortBindings", {})
