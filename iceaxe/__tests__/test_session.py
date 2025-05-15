@@ -780,7 +780,7 @@ async def test_upsert_multiple_conflict_fields(db_connection: DBConnection):
 
 
 @pytest.mark.asyncio
-async def test_for_update_prevents_concurrent_modification(db_connection: DBConnection):
+async def test_for_update_prevents_concurrent_modification(db_connection: DBConnection, docker_postgres):
     """
     Test that FOR UPDATE actually locks the row for concurrent modifications.
     """
@@ -799,11 +799,11 @@ async def test_for_update_prevents_concurrent_modification(db_connection: DBConn
         # until our transaction is done
         other_conn = DBConnection(
             await asyncpg.connect(
-                host="localhost",
-                port=5438,
-                user="iceaxe",
-                password="mysecretpassword",
-                database="iceaxe_test_db",
+                host=docker_postgres["host"],
+                port=docker_postgres["port"],
+                user=docker_postgres["user"],
+                password=docker_postgres["password"],
+                database=docker_postgres["database"],
             )
         )
         try:
@@ -820,7 +820,7 @@ async def test_for_update_prevents_concurrent_modification(db_connection: DBConn
 
 
 @pytest.mark.asyncio
-async def test_for_update_skip_locked(db_connection: DBConnection):
+async def test_for_update_skip_locked(db_connection: DBConnection, docker_postgres):
     """
     Test that SKIP LOCKED works as expected.
     """
@@ -844,11 +844,11 @@ async def test_for_update_skip_locked(db_connection: DBConnection):
         # From another connection, try to select both users with SKIP LOCKED
         other_conn = DBConnection(
             await asyncpg.connect(
-                host="localhost",
-                port=5438,
-                user="iceaxe",
-                password="mysecretpassword",
-                database="iceaxe_test_db",
+                host=docker_postgres["host"],
+                port=docker_postgres["port"],
+                user=docker_postgres["user"],
+                password=docker_postgres["password"],
+                database=docker_postgres["database"],
             )
         )
         try:
@@ -866,7 +866,7 @@ async def test_for_update_skip_locked(db_connection: DBConnection):
 
 
 @pytest.mark.asyncio
-async def test_for_update_of_with_join(db_connection: DBConnection):
+async def test_for_update_of_with_join(db_connection: DBConnection, docker_postgres):
     """
     Test FOR UPDATE OF with JOINed tables.
     """
@@ -892,11 +892,11 @@ async def test_for_update_of_with_join(db_connection: DBConnection):
         # but not the artifact
         other_conn = DBConnection(
             await asyncpg.connect(
-                host="localhost",
-                port=5438,
-                user="iceaxe",
-                password="mysecretpassword",
-                database="iceaxe_test_db",
+                host=docker_postgres["host"],
+                port=docker_postgres["port"],
+                user=docker_postgres["user"],
+                password=docker_postgres["password"],
+                database=docker_postgres["database"],
             )
         )
         try:
@@ -1356,7 +1356,7 @@ async def test_batch_upsert_multiple_with_real_db(db_connection: DBConnection):
 
 
 @pytest.mark.asyncio
-async def test_initialize_types_caching():
+async def test_initialize_types_caching(docker_postgres):
     # Clear the global cache for isolation.
     TYPE_CACHE.clear()
 
@@ -1374,11 +1374,11 @@ async def test_initialize_types_caching():
 
     # Establish the first connection.
     conn1 = await asyncpg.connect(
-        host="localhost",
-        port=5438,
-        user="iceaxe",
-        password="mysecretpassword",
-        database="iceaxe_test_db",
+        host=docker_postgres["host"],
+        port=docker_postgres["port"],
+        user=docker_postgres["user"],
+        password=docker_postgres["password"],
+        database=docker_postgres["database"],
     )
     db1 = DBConnection(conn1)
 
@@ -1417,11 +1417,11 @@ async def test_initialize_types_caching():
 
         # Create a second connection to the same database.
         conn2 = await asyncpg.connect(
-            host="localhost",
-            port=5438,
-            user="iceaxe",
-            password="mysecretpassword",
-            database="iceaxe_test_db",
+            host=docker_postgres["host"],
+            port=docker_postgres["port"],
+            user=docker_postgres["user"],
+            password=docker_postgres["password"],
+            database=docker_postgres["database"],
         )
         db2 = DBConnection(conn2)
 
