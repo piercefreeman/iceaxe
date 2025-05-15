@@ -1,14 +1,10 @@
 import logging
-import socket
-import time
-import uuid
 
 import asyncpg
-import docker
 import pytest
 import pytest_asyncio
-from docker.errors import APIError
 
+from iceaxe.__tests__ import docker_helpers
 from iceaxe.base import DBModelMetaclass
 from iceaxe.session import DBConnection
 
@@ -17,112 +13,21 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-def get_free_port():
-    """Find a free port on the host machine."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("", 0))
-        return s.getsockname()[1]
-
-
 @pytest.fixture(scope="session")
 def docker_postgres():
     """
     Fixture that creates a PostgreSQL container using the Python Docker API.
     This allows running individual tests without needing Docker Compose.
     """
-    # Initialize Docker client
-    client = docker.from_env()
+    # Create and start a PostgreSQL container
+    postgres_container = docker_helpers.PostgresContainer()
 
-    # Generate a unique container name to avoid conflicts
-    container_name = f"iceaxe-postgres-test-{uuid.uuid4().hex[:8]}"
-
-    port = get_free_port()
-    logger.info(f"Using port {port}")
-
-    # PostgreSQL connection details
-    pg_user = "iceaxe"
-    pg_password = "mysecretpassword"
-    pg_db = "iceaxe_test_db"
-
-    # Start PostgreSQL container
-    try:
-        container = client.containers.run(
-            "postgres:16",
-            name=container_name,
-            detach=True,
-            environment={
-                "POSTGRES_USER": pg_user,
-                "POSTGRES_PASSWORD": pg_password,
-                "POSTGRES_DB": pg_db,
-            },
-            ports={"5432/tcp": port},
-            remove=True,  # Auto-remove container when stopped
-        )
-    except APIError as e:
-        # If there's still an issue, try with a random port as a last resort
-        if "port is already allocated" in str(e):
-            logger.warning(
-                f"Port {port} is still in use. Trying with a completely random port."
-            )
-            port = get_free_port()
-            try:
-                container = client.containers.run(
-                    "postgres:16",
-                    name=container_name,
-                    detach=True,
-                    environment={
-                        "POSTGRES_USER": pg_user,
-                        "POSTGRES_PASSWORD": pg_password,
-                        "POSTGRES_DB": pg_db,
-                    },
-                    ports={"5432/tcp": port},
-                    remove=True,
-                )
-            except Exception as inner_e:
-                raise RuntimeError(
-                    f"Failed to start PostgreSQL container with random port: {inner_e}"
-                ) from e
-        else:
-            raise RuntimeError(f"Failed to start PostgreSQL container: {e}")
-
-    # Wait for PostgreSQL to be ready
-    max_retries = 30
-    retry_interval = 1
-    for i in range(max_retries):
-        container.reload()  # Refresh container status
-        if container.status != "running":
-            raise RuntimeError(f"Container failed to start: {container.status}")
-
-        # Try to connect to PostgreSQL
-        try:
-            conn = socket.create_connection(("localhost", port), timeout=1)
-            conn.close()
-            break
-        except (socket.error, ConnectionRefusedError):
-            if i == max_retries - 1:
-                container.stop()
-                raise RuntimeError("Failed to connect to PostgreSQL container")
-            time.sleep(retry_interval)
-
-    # Wait a bit more to ensure PostgreSQL is fully initialized
-    time.sleep(2)
-
-    # Yield connection details
-    connection_info = {
-        "host": "localhost",
-        "port": port,
-        "user": pg_user,
-        "password": pg_password,
-        "database": pg_db,
-    }
-
+    # Start the container and yield connection details
+    connection_info = postgres_container.start()
     yield connection_info
 
     # Cleanup: stop the container
-    try:
-        container.stop()
-    except Exception as e:
-        logger.warning(f"Failed to stop container: {e}")
+    postgres_container.stop()
 
 
 @pytest_asyncio.fixture
