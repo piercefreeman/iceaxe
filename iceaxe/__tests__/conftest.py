@@ -47,9 +47,19 @@ async def db_connection(docker_postgres):
 
     # Drop all tables first to ensure clean state
     known_tables = [
-        "artifactdemo", "userdemo", "complexdemo", "article",
-        "employee", "department", "projectassignment", "employeemetadata",
-        "functiondemomodel", "demomodela", "demomodelb", "jsondemo", "complextypedemo"
+        "artifactdemo",
+        "userdemo",
+        "complexdemo",
+        "article",
+        "employee",
+        "department",
+        "projectassignment",
+        "employeemetadata",
+        "functiondemomodel",
+        "demomodela",
+        "demomodelb",
+        "jsondemo",
+        "complextypedemo",
     ]
     known_types = ["statusenum", "employeestatus"]
 
@@ -57,7 +67,9 @@ async def db_connection(docker_postgres):
         await conn.conn.execute(f"DROP TABLE IF EXISTS {table} CASCADE", timeout=30.0)
 
     for known_type in known_types:
-        await conn.conn.execute(f"DROP TYPE IF EXISTS {known_type} CASCADE", timeout=30.0)
+        await conn.conn.execute(
+            f"DROP TYPE IF EXISTS {known_type} CASCADE", timeout=30.0
+        )
 
     # Create tables
     await conn.conn.execute(
@@ -114,7 +126,9 @@ async def db_connection(docker_postgres):
 
     # Drop all types after tests
     for known_type in known_types:
-        await conn.conn.execute(f"DROP TYPE IF EXISTS {known_type} CASCADE", timeout=30.0)
+        await conn.conn.execute(
+            f"DROP TYPE IF EXISTS {known_type} CASCADE", timeout=30.0
+        )
 
     await conn.conn.close()
 

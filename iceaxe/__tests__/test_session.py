@@ -780,7 +780,9 @@ async def test_upsert_multiple_conflict_fields(db_connection: DBConnection):
 
 
 @pytest.mark.asyncio
-async def test_for_update_prevents_concurrent_modification(db_connection: DBConnection, docker_postgres):
+async def test_for_update_prevents_concurrent_modification(
+    db_connection: DBConnection, docker_postgres
+):
     """
     Test that FOR UPDATE actually locks the row for concurrent modifications.
     """
