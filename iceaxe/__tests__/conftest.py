@@ -51,12 +51,13 @@ async def db_connection(docker_postgres):
         "employee", "department", "projectassignment", "employeemetadata",
         "functiondemomodel", "demomodela", "demomodelb", "jsondemo", "complextypedemo"
     ]
+    known_types = ["statusenum", "employeestatus"]
 
     for table in known_tables:
         await conn.conn.execute(f"DROP TABLE IF EXISTS {table} CASCADE", timeout=30.0)
 
-    await conn.conn.execute("DROP TYPE IF EXISTS statusenum CASCADE", timeout=30.0)
-    await conn.conn.execute("DROP TYPE IF EXISTS employeestatus CASCADE", timeout=30.0)
+    for known_type in known_types:
+        await conn.conn.execute(f"DROP TYPE IF EXISTS {known_type} CASCADE", timeout=30.0)
 
     # Create tables
     await conn.conn.execute(
@@ -108,29 +109,13 @@ async def db_connection(docker_postgres):
     yield conn
 
     # Drop all tables after tests
-    await conn.conn.execute("DROP TABLE IF EXISTS artifactdemo CASCADE", timeout=30.0)
-    await conn.conn.execute("DROP TABLE IF EXISTS userdemo CASCADE", timeout=30.0)
-    await conn.conn.execute("DROP TABLE IF EXISTS complexdemo CASCADE", timeout=30.0)
-    await conn.conn.execute("DROP TABLE IF EXISTS article CASCADE", timeout=30.0)
-    await conn.conn.execute("DROP TABLE IF EXISTS employee CASCADE", timeout=30.0)
-    await conn.conn.execute("DROP TABLE IF EXISTS department CASCADE", timeout=30.0)
-    await conn.conn.execute(
-        "DROP TABLE IF EXISTS projectassignment CASCADE", timeout=30.0
-    )
-    await conn.conn.execute(
-        "DROP TABLE IF EXISTS employeemetadata CASCADE", timeout=30.0
-    )
-    await conn.conn.execute(
-        "DROP TABLE IF EXISTS functiondemomodel CASCADE", timeout=30.0
-    )
-    await conn.conn.execute("DROP TABLE IF EXISTS demomodela CASCADE", timeout=30.0)
-    await conn.conn.execute("DROP TABLE IF EXISTS demomodelb CASCADE", timeout=30.0)
-    await conn.conn.execute("DROP TABLE IF EXISTS jsondemo CASCADE", timeout=30.0)
-    await conn.conn.execute(
-        "DROP TABLE IF EXISTS complextypedemo CASCADE", timeout=30.0
-    )
-    await conn.conn.execute("DROP TYPE IF EXISTS statusenum CASCADE", timeout=30.0)
-    await conn.conn.execute("DROP TYPE IF EXISTS employeestatus CASCADE", timeout=30.0)
+    for table in known_tables:
+        await conn.conn.execute(f"DROP TABLE IF EXISTS {table} CASCADE", timeout=30.0)
+
+    # Drop all types after tests
+    for known_type in known_types:
+        await conn.conn.execute(f"DROP TYPE IF EXISTS {known_type} CASCADE", timeout=30.0)
+
     await conn.conn.close()
 
 
