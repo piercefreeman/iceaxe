@@ -233,18 +233,15 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "docker" },
     { name = "mountaineer" },
     { name = "mypy" },
+    { name = "pydantic" },
     { name = "pyinstrument" },
     { name = "pyright" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "ruff" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "docker" },
 ]
 
 [package.metadata]
@@ -256,6 +253,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "docker", specifier = ">=7.1.0" },
     { name = "mountaineer", specifier = ">=0.8.0" },
     { name = "mypy", specifier = ">=1.15.0" },
     { name = "pydantic", specifier = ">=2,<2.11" },
@@ -265,9 +263,6 @@ dev = [
     { name = "pytest-asyncio", specifier = ">=0.25.3" },
     { name = "ruff", specifier = ">=0.11.0" },
 ]
-
-[package.metadata.requires-dev]
-dev = [{ name = "docker", specifier = ">=7.1.0" }]
 
 [[package]]
 name = "idna"
