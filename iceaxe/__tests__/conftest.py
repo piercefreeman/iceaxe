@@ -7,7 +7,6 @@ import asyncpg
 import docker
 import pytest
 import pytest_asyncio
-from docker.client import DockerClient
 from docker.errors import APIError
 
 from iceaxe.base import DBModelMetaclass
@@ -25,36 +24,6 @@ def get_free_port():
         return s.getsockname()[1]
 
 
-def stop_containers_using_port(client: DockerClient, port: int) -> bool:
-    """Stop any containers using the specified port."""
-    for container in client.containers.list():
-        container_ports = container.attrs.get("HostConfig", {}).get("PortBindings", {})
-        for container_port, bindings in container_ports.items():
-            for binding in bindings:
-                if binding.get("HostPort") == str(port):
-                    logger.info(
-                        f"Stopping container {container.name} that is using port {port}"
-                    )
-                    try:
-                        container.stop()
-                        container.remove()
-                        logger.info(
-                            f"Successfully stopped and removed container {container.name}"
-                        )
-                    except Exception as e:
-                        logger.warning(
-                            f"Failed to stop container {container.name}: {e}"
-                        )
-
-    # Double-check if the port is free now
-    try:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.bind(("0.0.0.0", port))
-            return True
-    except OSError:
-        return False
-
-
 @pytest.fixture(scope="session")
 def docker_postgres():
     """
@@ -65,21 +34,10 @@ def docker_postgres():
     client = docker.from_env()
 
     # Generate a unique container name to avoid conflicts
-    container_name = f"postgres-test-{uuid.uuid4().hex[:8]}"
+    container_name = f"iceaxe-postgres-test-{uuid.uuid4().hex[:8]}"
 
-    # First try with the fixed port to match existing test expectations
-    preferred_port = 5438
-
-    # Try to free up the preferred port
-    port_freed = stop_containers_using_port(client, preferred_port)
-
-    # If we couldn't free the port, use a random one
-    if port_freed:
-        port = preferred_port
-        logger.info(f"Using preferred port {port}")
-    else:
-        port = get_free_port()
-        logger.info(f"Using alternative port {port}")
+    port = get_free_port()
+    logger.info(f"Using port {port}")
 
     # PostgreSQL connection details
     pg_user = "iceaxe"
