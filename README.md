@@ -2,9 +2,7 @@
 
 ![Iceaxe Logo](https://raw.githubusercontent.com/piercefreeman/iceaxe/main/media/header.png)
 
-![Python Version](https://img.shields.io/python/required-version-toml?tomlFilePath=https%3A%2F%2Fraw.githubusercontent.com%2Fpiercefreeman%2Ficeaxe%2Frefs%2Fheads%2Fmain%2Fpyproject.toml)
-
-[![Test status](https://github.com/piercefreeman/iceaxe/actions/workflows/test.yml/badge.svg)](https://github.com/piercefreeman/iceaxe/actions)
+![Python Version](https://img.shields.io/python/required-version-toml?tomlFilePath=https%3A%2F%2Fraw.githubusercontent.com%2Fpiercefreeman%2Ficeaxe%2Frefs%2Fheads%2Fmain%2Fpyproject.toml) [![Test status](https://github.com/piercefreeman/iceaxe/actions/workflows/test.yml/badge.svg)](https://github.com/piercefreeman/iceaxe/actions)
 
 A modern, fast ORM for Python. We have the following goals:
 
