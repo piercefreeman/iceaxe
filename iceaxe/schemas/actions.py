@@ -289,7 +289,31 @@ class DatabaseActions:
         :param explicit_data_type: The new data type for the column
         :param explicit_data_is_list: Whether the column should be an array type
         :param custom_data_type: A custom SQL type string (mutually exclusive with explicit_data_type)
-        :param autocast: If True, automatically add a USING clause to cast existing data to the new type
+        :param autocast: If True, automatically add a USING clause to cast existing data to the new type.
+                        Auto-generated migrations set this to True by default. Supports most common
+                        PostgreSQL type conversions including:
+                        - String to numeric (VARCHAR/TEXT → INTEGER/BIGINT/SMALLINT/REAL)
+                        - String to boolean (VARCHAR/TEXT → BOOLEAN)
+                        - String to date/time (VARCHAR/TEXT → DATE/TIMESTAMP/TIME)
+                        - String to specialized types (VARCHAR/TEXT → UUID/JSON/JSONB)
+                        - Scalar to array types (INTEGER → INTEGER[])
+                        - Custom enum conversions (VARCHAR/TEXT → custom enum)
+                        - Compatible numeric conversions (INTEGER → BIGINT)
+                        
+                        When autocast=False, PostgreSQL will only allow the type change if it's
+                        compatible without explicit casting, which may fail for many conversions.
+
+        Example:
+            # Auto-generated migration (autocast=True by default)
+            await actor.modify_column_type(
+                "products", "price", ColumnType.INTEGER, autocast=True
+            )
+            
+            # Manual migration with custom control
+            await actor.modify_column_type(
+                "products", "price", ColumnType.INTEGER, autocast=False
+            )
+            # Then handle data conversion manually if needed
 
         """
         if not explicit_data_type and not custom_data_type:

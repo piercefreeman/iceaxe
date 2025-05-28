@@ -230,7 +230,7 @@ async def test_diff_migration():
                 "explicit_data_is_list": False,
                 "explicit_data_type": None,
                 "table_name": "modela",
-                "autocast": False,
+                "autocast": True,
             },
         ),
         DryRunComment(

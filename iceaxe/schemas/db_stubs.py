@@ -176,6 +176,7 @@ class DBColumn(DBColumnBase, DBObject):
                     if isinstance(self.column_type, DBTypePointer)
                     else None
                 ),
+                autocast=True,
             )
             actor.add_comment(
                 "TODO: Perform a migration of values across types", previous_line=True
