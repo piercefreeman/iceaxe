@@ -314,7 +314,7 @@ async def test_rename_column(
 
 
 @pytest.mark.asyncio
-async def modify_column_type(
+async def test_modify_column_type(
     db_backed_actions: DatabaseActions,
     db_connection: DBConnection,
 ):

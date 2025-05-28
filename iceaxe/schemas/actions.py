@@ -321,7 +321,7 @@ class DatabaseActions:
             ),
             f"""
             ALTER TABLE {table}
-            MODIFY COLUMN {column} {column_type}
+            ALTER COLUMN {column} TYPE {column_type}
             """,
         )
 
