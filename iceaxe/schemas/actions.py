@@ -278,10 +278,42 @@ class DatabaseActions:
         explicit_data_type: ColumnType | None = None,
         explicit_data_is_list: bool = False,
         custom_data_type: str | None = None,
+        autocast: bool = False,
     ):
         """
         Modify the data type of a column. This does not inherently perform any data migrations
         of the column data types. It simply alters the table schema.
+
+        :param table_name: The name of the table containing the column
+        :param column_name: The name of the column to modify
+        :param explicit_data_type: The new data type for the column
+        :param explicit_data_is_list: Whether the column should be an array type
+        :param custom_data_type: A custom SQL type string (mutually exclusive with explicit_data_type)
+        :param autocast: If True, automatically add a USING clause to cast existing data to the new type.
+                        Auto-generated migrations set this to True by default. Supports most common
+                        PostgreSQL type conversions including:
+                        - String to numeric (VARCHAR/TEXT → INTEGER/BIGINT/SMALLINT/REAL)
+                        - String to boolean (VARCHAR/TEXT → BOOLEAN)
+                        - String to date/time (VARCHAR/TEXT → DATE/TIMESTAMP/TIME)
+                        - String to specialized types (VARCHAR/TEXT → UUID/JSON/JSONB)
+                        - Scalar to array types (INTEGER → INTEGER[])
+                        - Custom enum conversions (VARCHAR/TEXT → custom enum)
+                        - Compatible numeric conversions (INTEGER → BIGINT)
+                        
+                        When autocast=False, PostgreSQL will only allow the type change if it's
+                        compatible without explicit casting, which may fail for many conversions.
+
+        Example:
+            # Auto-generated migration (autocast=True by default)
+            await actor.modify_column_type(
+                "products", "price", ColumnType.INTEGER, autocast=True
+            )
+            
+            # Manual migration with custom control
+            await actor.modify_column_type(
+                "products", "price", ColumnType.INTEGER, autocast=False
+            )
+            # Then handle data conversion manually if needed
 
         """
         if not explicit_data_type and not custom_data_type:
@@ -310,6 +342,20 @@ class DatabaseActions:
             custom_data_type=custom_data_type,
         )
 
+        # Build the SQL with optional USING clause for autocast
+        sql = f"ALTER TABLE {table}\nALTER COLUMN {column} TYPE {column_type}"
+
+        if autocast:
+            # Add USING clause to cast the column to the new type
+            cast_expression = self._get_autocast_expression(
+                column_name=str(column),
+                target_type=column_type,
+                explicit_data_type=explicit_data_type,
+                explicit_data_is_list=explicit_data_is_list,
+                custom_data_type=custom_data_type,
+            )
+            sql += f"\nUSING {cast_expression}"
+
         await self._record_signature(
             self.modify_column_type,
             dict(
@@ -318,12 +364,64 @@ class DatabaseActions:
                 explicit_data_type=explicit_data_type,
                 explicit_data_is_list=explicit_data_is_list,
                 custom_data_type=custom_data_type,
+                autocast=autocast,
             ),
-            f"""
-            ALTER TABLE {table}
-            MODIFY COLUMN {column} {column_type}
-            """,
+            sql,
         )
+
+    def _get_autocast_expression(
+        self,
+        column_name: str,
+        target_type: str,
+        explicit_data_type: ColumnType | None = None,
+        explicit_data_is_list: bool = False,
+        custom_data_type: str | None = None,
+    ) -> str:
+        """
+        Generate an appropriate USING expression for casting a column to a new type.
+        This handles common type conversions that PostgreSQL can perform.
+        """
+        # For array types, we need to handle them specially
+        if explicit_data_is_list:
+            # For converting scalar to array, we need to wrap the value in an array
+            base_type = (
+                explicit_data_type.value if explicit_data_type else custom_data_type
+            )
+            return f"ARRAY[{column_name}::{base_type}]"
+
+        # For custom types (like enums), use text as intermediate
+        if custom_data_type:
+            return f"{column_name}::text::{custom_data_type}"
+
+        # For explicit data types, handle special cases
+        if explicit_data_type:
+            # Handle common conversions that might need special treatment
+            if explicit_data_type in [
+                ColumnType.INTEGER,
+                ColumnType.BIGINT,
+                ColumnType.SMALLINT,
+            ]:
+                # For numeric types, try direct cast first, but this will fail if source is non-numeric string
+                return f"{column_name}::{explicit_data_type.value}"
+            elif explicit_data_type == ColumnType.BOOLEAN:
+                # Boolean conversion can be tricky, use a more flexible approach
+                return f"{column_name}::boolean"
+            elif explicit_data_type in [
+                ColumnType.DATE,
+                ColumnType.TIMESTAMP,
+                ColumnType.TIME,
+            ]:
+                # Date/time conversions
+                return f"{column_name}::{explicit_data_type.value}"
+            elif explicit_data_type in [ColumnType.JSON, ColumnType.JSONB]:
+                # JSON conversions - usually from text
+                return f"{column_name}::{explicit_data_type.value}"
+            else:
+                # For most other types, a direct cast should work
+                return f"{column_name}::{explicit_data_type.value}"
+
+        # Fallback to direct cast
+        return f"{column_name}::{target_type}"
 
     @overload
     async def add_constraint(

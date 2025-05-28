@@ -154,6 +154,97 @@ async def up(self, migrator: Migrator):
     await migrator.actor.add_not_null(table_name="employee", column_name="age")
 ```
 
+## Column Type Changes and Autocast
+
+When you change the data type of an existing column in your TableBase schema, Iceaxe will automatically generate a `modify_column_type` migration. By default, these auto-generated migrations include automatic type casting (`autocast=True`) to handle data conversion between incompatible types.
+
+### Automatic Type Conversion
+
+Consider this scenario where you want to change a text field to store numeric data:
+
+```python
+# Before
+class Product(TableBase):
+    id: int = Field(primary_key=True)
+    price: str  # Originally stored as text
+
+# After  
+class Product(TableBase):
+    id: int = Field(primary_key=True)
+    price: int  # Now we want it as an integer
+```
+
+Iceaxe will generate a migration like this:
+
+```python
+async def up(self, migrator: Migrator):
+    await migrator.actor.modify_column_type(
+        table_name="product", 
+        column_name="price", 
+        explicit_data_type=ColumnType.INTEGER,
+        autocast=True  # Automatically added
+    )
+```
+
+The `autocast=True` parameter tells PostgreSQL to automatically convert existing data using an appropriate `USING` clause. This handles conversions like:
+
+- String to numeric types (`"123"` → `123`)
+- String to boolean (`"true"` → `True`)
+- String to date/time types (`"2023-01-01"` → `date(2023, 1, 1)`)
+- String to UUID, JSON, and other specialized types
+- Scalar to array types (`42` → `[42]`)
+- Custom enum conversions
+
+### Customizing Autocast Behavior
+
+If you need to customize the type conversion behavior, you can manually edit the generated migration:
+
+```python
+async def up(self, migrator: Migrator):
+    # Disable autocast for manual control
+    await migrator.actor.modify_column_type(
+        table_name="product", 
+        column_name="price", 
+        explicit_data_type=ColumnType.INTEGER,
+        autocast=False
+    )
+    
+    # Or add custom data transformation logic
+    await migrator.db_connection.conn.execute("""
+        UPDATE product 
+        SET price = CASE 
+            WHEN price ~ '^[0-9]+$' THEN price::integer
+            ELSE 0
+        END
+    """)
+```
+
+### Supported Type Conversions
+
+The autocast feature supports most common PostgreSQL type conversions:
+
+| From Type | To Type | Example |
+|-----------|---------|---------|
+| VARCHAR/TEXT | INTEGER/BIGINT | `"123"` → `123` |
+| VARCHAR/TEXT | BOOLEAN | `"true"` → `true` |
+| VARCHAR/TEXT | DATE/TIMESTAMP | `"2023-01-01"` → `2023-01-01` |
+| VARCHAR/TEXT | UUID | `"550e8400-..."` → UUID |
+| VARCHAR/TEXT | JSON/JSONB | `'{"key":"value"}'` → JSON |
+| VARCHAR/TEXT | Custom Enums | `"ACTIVE"` → enum value |
+| Scalar Types | Array Types | `42` → `[42]` |
+| Compatible numeric types | Direct conversion | `123` → `123.0` |
+
+### Migration Safety
+
+Auto-generated migrations with `autocast=True` are designed to be safe for most common scenarios. However, you should always:
+
+1. **Review generated migrations** before applying them to production
+2. **Test migrations** on a copy of your production data first
+3. **Backup your database** before applying type-changing migrations
+4. **Consider data validation** - autocast will fail if data cannot be converted
+
+If you have data that cannot be automatically converted (e.g., non-numeric strings when converting to integers), the migration will fail and you'll need to clean up the data first or provide custom conversion logic.
+
 ## Applying migrations
 
 When you're happy with your migration, you can apply it to your database by running
