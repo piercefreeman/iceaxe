@@ -1,4 +1,6 @@
+import re
 from abc import abstractmethod
+from dataclasses import dataclass
 from typing import Self, Union
 
 from pydantic import BaseModel, Field, model_validator
@@ -10,6 +12,15 @@ from iceaxe.schemas.actions import (
     DatabaseActions,
     ForeignKeyConstraint,
 )
+
+
+@dataclass
+class ConstraintPointerInfo:
+    """Information parsed from a constraint pointer representation."""
+
+    table_name: str
+    column_names: list[str]
+    constraint_type: str
 
 
 class DBObject(BaseModel):
@@ -85,6 +96,84 @@ class DBObjectPointer(BaseModel):
     @abstractmethod
     def representation(self) -> str:
         pass
+
+    def parse_constraint_pointer(self) -> ConstraintPointerInfo | None:
+        """
+        Parse a constraint pointer representation into its components.
+
+        Returns:
+            ConstraintPointerInfo | None: Parsed constraint information or None if not a constraint pointer
+
+        Examples:
+            "table.['column'].PRIMARY KEY" -> ConstraintPointerInfo("table", ["column"], "PRIMARY KEY")
+            "table.['col1', 'col2'].UNIQUE" -> ConstraintPointerInfo("table", ["col1", "col2"], "UNIQUE")
+        """
+        representation = self.representation()
+
+        # Pattern to match: table_name.[column_list].constraint_type
+        # where column_list can be ['col'] or ['col1', 'col2', ...]
+        pattern = r"^([^.]+)\.(\[.*?\])\.(.+)$"
+        match = re.match(pattern, representation)
+
+        if not match:
+            return None
+
+        table_name, columns_part, constraint_type = match.groups()
+
+        # Parse the column list: ['col1', 'col2'] -> ["col1", "col2"]
+        # Remove brackets and split by comma, then clean up quotes and whitespace
+        columns_str = columns_part.strip("[]")
+        if not columns_str:
+            return ConstraintPointerInfo(table_name, [], constraint_type)
+
+        # Split by comma and clean each column name
+        columns = []
+        for col in columns_str.split(","):
+            col = col.strip().strip("'\"")
+            if col:
+                columns.append(col)
+
+        return ConstraintPointerInfo(table_name, columns, constraint_type)
+
+    def get_table_name(self) -> str | None:
+        """
+        Extract the table name from the pointer representation.
+
+        Returns:
+            str | None: The table name if it can be parsed, None otherwise
+        """
+        # Try constraint pointer format first
+        parsed = self.parse_constraint_pointer()
+        if parsed is not None:
+            return parsed.table_name
+
+        # Try simple table.column format
+        representation = self.representation()
+        parts = representation.split(".")
+        if len(parts) >= 1:
+            return parts[0]
+
+        return None
+
+    def get_column_names(self) -> list[str]:
+        """
+        Extract column names from the pointer representation.
+
+        Returns:
+            list[str]: List of column names if they can be parsed, empty list otherwise
+        """
+        # Try constraint pointer format first
+        parsed = self.parse_constraint_pointer()
+        if parsed is not None:
+            return parsed.column_names
+
+        # Try simple table.column format
+        representation = self.representation()
+        parts = representation.split(".")
+        if len(parts) >= 2:
+            return [parts[1]]
+
+        return []
 
 
 class DBTable(DBObject):
