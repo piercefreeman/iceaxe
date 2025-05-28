@@ -323,23 +323,252 @@ async def test_modify_column_type(
         "CREATE TABLE test_table (id SERIAL PRIMARY KEY, test_column VARCHAR)"
     )
 
-    # Modify the column type, since nothing is in the column we should
-    # be able to do this without any issues
+    # Modify the column type from VARCHAR to TEXT, which is a compatible change
+    # that doesn't require explicit casting
     await db_backed_actions.modify_column_type(
-        "test_table", "test_column", ColumnType.INTEGER
+        "test_table", "test_column", ColumnType.TEXT
     )
 
-    # We should now be able to inject an integer value
+    # We should now be able to inject a text value
     await db_connection.conn.execute(
         "INSERT INTO test_table (test_column) VALUES ($1)",
-        1,
+        "test_string_value",
     )
 
     # Make sure that we can retrieve the object
     rows = await db_connection.conn.fetch("SELECT * FROM test_table")
     row = rows[0]
     assert row
-    assert row["test_column"] == 1
+    assert row["test_column"] == "test_string_value"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "from_type,to_type,test_value,expected_value,requires_autocast",
+    [
+        # String conversions
+        (ColumnType.VARCHAR, ColumnType.TEXT, "test", "test", False),
+        (ColumnType.TEXT, ColumnType.VARCHAR, "test", "test", False),
+        # Numeric conversions - these require autocast
+        (ColumnType.VARCHAR, ColumnType.INTEGER, "123", 123, True),
+        (ColumnType.TEXT, ColumnType.INTEGER, "456", 456, True),
+        (ColumnType.INTEGER, ColumnType.BIGINT, 123, 123, False),
+        (ColumnType.INTEGER, ColumnType.SMALLINT, 50, 50, False),
+        (ColumnType.SMALLINT, ColumnType.INTEGER, 50, 50, False),
+        (ColumnType.INTEGER, ColumnType.REAL, 123, 123.0, False),
+        (ColumnType.REAL, ColumnType.DOUBLE_PRECISION, 123.5, 123.5, False),
+        # Boolean conversions - require autocast
+        (ColumnType.VARCHAR, ColumnType.BOOLEAN, "true", True, True),
+        (ColumnType.TEXT, ColumnType.BOOLEAN, "false", False, True),
+        (ColumnType.INTEGER, ColumnType.BOOLEAN, 1, True, True),
+        # Timestamp conversions - require autocast for string sources
+        (ColumnType.VARCHAR, ColumnType.DATE, "2023-01-01", "2023-01-01", True),
+        (
+            ColumnType.TEXT,
+            ColumnType.TIMESTAMP,
+            "2023-01-01 12:00:00",
+            "2023-01-01 12:00:00",
+            True,
+        ),
+        # JSON conversions - require autocast, return as strings
+        (
+            ColumnType.TEXT,
+            ColumnType.JSON,
+            '{"key": "value"}',
+            '{"key": "value"}',
+            True,
+        ),
+        (
+            ColumnType.VARCHAR,
+            ColumnType.JSONB,
+            '{"key": "value"}',
+            '{"key": "value"}',
+            True,
+        ),
+        (
+            ColumnType.JSON,
+            ColumnType.JSONB,
+            '{"key": "value"}',
+            '{"key": "value"}',
+            False,
+        ),
+    ],
+)
+async def test_modify_column_type_with_autocast(
+    from_type: ColumnType,
+    to_type: ColumnType,
+    test_value,
+    expected_value,
+    requires_autocast: bool,
+    db_backed_actions: DatabaseActions,
+    db_connection: DBConnection,
+):
+    """
+    Test column type modifications with autocast for various type conversions.
+    """
+    table_name = "test_table_autocast"
+    column_name = "test_column"
+
+    # Create table with source type - handle special cases
+    if from_type == ColumnType.CHAR:
+        # CHAR needs a length specifier
+        type_spec = f"{from_type.value}(10)"
+    else:
+        type_spec = from_type.value
+
+    await db_connection.conn.execute(
+        f"CREATE TABLE {table_name} (id SERIAL PRIMARY KEY, {column_name} {type_spec})"
+    )
+
+    # Insert test data
+    await db_connection.conn.execute(
+        f"INSERT INTO {table_name} ({column_name}) VALUES ($1)",
+        test_value,
+    )
+
+    # Modify column type with autocast if required
+    await db_backed_actions.modify_column_type(
+        table_name,
+        column_name,
+        explicit_data_type=to_type,
+        autocast=requires_autocast,
+    )
+
+    # Verify the conversion worked
+    rows = await db_connection.conn.fetch(f"SELECT * FROM {table_name}")
+    row = rows[0]
+    assert row
+
+    # Handle different expected value types
+    actual_value = row[column_name]
+    if isinstance(expected_value, str) and to_type in [
+        ColumnType.DATE,
+        ColumnType.TIMESTAMP,
+    ]:
+        # For date/timestamp, convert to string for comparison
+        actual_value = str(actual_value)
+
+    assert actual_value == expected_value
+
+
+@pytest.mark.asyncio
+async def test_modify_column_type_autocast_without_data(
+    db_backed_actions: DatabaseActions,
+    db_connection: DBConnection,
+):
+    """
+    Test that autocast works even when there's no data in the column.
+    """
+    table_name = "test_table_empty"
+    column_name = "test_column"
+
+    # Create table with VARCHAR
+    await db_connection.conn.execute(
+        f"CREATE TABLE {table_name} (id SERIAL PRIMARY KEY, {column_name} VARCHAR)"
+    )
+
+    # Convert to INTEGER with autocast (should work even with no data)
+    await db_backed_actions.modify_column_type(
+        table_name,
+        column_name,
+        explicit_data_type=ColumnType.INTEGER,
+        autocast=True,
+    )
+
+    # Insert integer data to verify it works
+    await db_connection.conn.execute(
+        f"INSERT INTO {table_name} ({column_name}) VALUES ($1)",
+        42,
+    )
+
+    rows = await db_connection.conn.fetch(f"SELECT * FROM {table_name}")
+    row = rows[0]
+    assert row
+    assert row[column_name] == 42
+
+
+@pytest.mark.asyncio
+async def test_modify_column_type_incompatible_without_autocast_fails(
+    db_backed_actions: DatabaseActions,
+    db_connection: DBConnection,
+):
+    """
+    Test that incompatible type changes fail without autocast.
+    """
+    table_name = "test_table_fail"
+    column_name = "test_column"
+
+    # Create table with VARCHAR containing non-numeric data
+    await db_connection.conn.execute(
+        f"CREATE TABLE {table_name} (id SERIAL PRIMARY KEY, {column_name} VARCHAR)"
+    )
+
+    await db_connection.conn.execute(
+        f"INSERT INTO {table_name} ({column_name}) VALUES ($1)",
+        "not_a_number",
+    )
+
+    # Attempt to convert to INTEGER without autocast should fail
+    with pytest.raises(Exception):  # Should be DatatypeMismatchError
+        await db_backed_actions.modify_column_type(
+            table_name,
+            column_name,
+            explicit_data_type=ColumnType.INTEGER,
+            autocast=False,
+        )
+
+
+@pytest.mark.asyncio
+async def test_modify_column_type_custom_type_with_autocast(
+    db_backed_actions: DatabaseActions,
+    db_connection: DBConnection,
+):
+    """
+    Test autocast with custom types (enums).
+    """
+    table_name = "test_table_custom"
+    column_name = "test_column"
+    enum_name = "test_enum"
+
+    # Create enum type
+    await db_connection.conn.execute(f"CREATE TYPE {enum_name} AS ENUM ('A', 'B', 'C')")
+
+    # Create table with VARCHAR
+    await db_connection.conn.execute(
+        f"CREATE TABLE {table_name} (id SERIAL PRIMARY KEY, {column_name} VARCHAR)"
+    )
+
+    # Insert enum-compatible string
+    await db_connection.conn.execute(
+        f"INSERT INTO {table_name} ({column_name}) VALUES ($1)",
+        "A",
+    )
+
+    # Convert to custom enum type with autocast
+    await db_backed_actions.modify_column_type(
+        table_name,
+        column_name,
+        custom_data_type=enum_name,
+        autocast=True,
+    )
+
+    # Verify the conversion worked
+    rows = await db_connection.conn.fetch(f"SELECT * FROM {table_name}")
+    row = rows[0]
+    assert row
+    assert row[column_name] == "A"
+
+    # Verify the column type is now the custom enum
+    type_info = await db_connection.conn.fetch(
+        """
+        SELECT data_type, udt_name 
+        FROM information_schema.columns 
+        WHERE table_name = $1 AND column_name = $2
+        """,
+        table_name,
+        column_name,
+    )
+    assert type_info[0]["udt_name"] == enum_name
 
 
 @pytest.mark.asyncio
@@ -857,3 +1086,179 @@ async def test_add_constraint_foreign_key_actions(
     # Verify the delete cascaded
     result = await db_connection.conn.fetch("SELECT COUNT(*) FROM test_table")
     assert result[0]["count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_modify_column_type_uuid_conversion(
+    db_backed_actions: DatabaseActions,
+    db_connection: DBConnection,
+):
+    """
+    Test UUID type conversions specifically.
+    """
+    table_name = "test_table_uuid"
+    column_name = "test_column"
+    uuid_string = "550e8400-e29b-41d4-a716-446655440000"
+
+    # Create table with VARCHAR
+    await db_connection.conn.execute(
+        f"CREATE TABLE {table_name} (id SERIAL PRIMARY KEY, {column_name} VARCHAR)"
+    )
+
+    # Insert UUID string
+    await db_connection.conn.execute(
+        f"INSERT INTO {table_name} ({column_name}) VALUES ($1)",
+        uuid_string,
+    )
+
+    # Convert to UUID with autocast
+    await db_backed_actions.modify_column_type(
+        table_name,
+        column_name,
+        explicit_data_type=ColumnType.UUID,
+        autocast=True,
+    )
+
+    # Verify the conversion worked
+    rows = await db_connection.conn.fetch(f"SELECT * FROM {table_name}")
+    row = rows[0]
+    assert row
+
+    # UUID columns return UUID objects
+    actual_value = row[column_name]
+    assert str(actual_value) == uuid_string
+
+
+@pytest.mark.asyncio
+async def test_modify_column_type_date_to_timestamp(
+    db_backed_actions: DatabaseActions,
+    db_connection: DBConnection,
+):
+    """
+    Test date to timestamp conversions.
+    """
+    from datetime import date, datetime
+
+    table_name = "test_table_date"
+    column_name = "test_column"
+    test_date = date(2023, 1, 1)
+
+    # Create table with DATE
+    await db_connection.conn.execute(
+        f"CREATE TABLE {table_name} (id SERIAL PRIMARY KEY, {column_name} DATE)"
+    )
+
+    # Insert date value
+    await db_connection.conn.execute(
+        f"INSERT INTO {table_name} ({column_name}) VALUES ($1)",
+        test_date,
+    )
+
+    # Convert to TIMESTAMP (no autocast needed for compatible types)
+    await db_backed_actions.modify_column_type(
+        table_name,
+        column_name,
+        explicit_data_type=ColumnType.TIMESTAMP,
+        autocast=False,
+    )
+
+    # Verify the conversion worked
+    rows = await db_connection.conn.fetch(f"SELECT * FROM {table_name}")
+    row = rows[0]
+    assert row
+
+    # Should be a datetime object now
+    actual_value = row[column_name]
+    assert isinstance(actual_value, datetime)
+    assert actual_value.date() == test_date
+
+
+@pytest.mark.asyncio
+async def test_modify_column_type_char_to_varchar(
+    db_backed_actions: DatabaseActions,
+    db_connection: DBConnection,
+):
+    """
+    Test CHAR to VARCHAR conversion with proper length handling.
+    """
+    table_name = "test_table_char"
+    column_name = "test_column"
+    test_value = "test"
+
+    # Create table with CHAR(10)
+    await db_connection.conn.execute(
+        f"CREATE TABLE {table_name} (id SERIAL PRIMARY KEY, {column_name} CHAR(10))"
+    )
+
+    # Insert test value
+    await db_connection.conn.execute(
+        f"INSERT INTO {table_name} ({column_name}) VALUES ($1)",
+        test_value,
+    )
+
+    # Convert to VARCHAR
+    await db_backed_actions.modify_column_type(
+        table_name,
+        column_name,
+        explicit_data_type=ColumnType.VARCHAR,
+        autocast=False,
+    )
+
+    # Verify the conversion worked
+    rows = await db_connection.conn.fetch(f"SELECT * FROM {table_name}")
+    row = rows[0]
+    assert row
+
+    # CHAR pads with spaces, VARCHAR should trim them
+    actual_value = row[column_name]
+    assert actual_value.strip() == test_value
+
+
+@pytest.mark.asyncio
+async def test_modify_column_type_scalar_to_array(
+    db_backed_actions: DatabaseActions,
+    db_connection: DBConnection,
+):
+    """
+    Test converting a scalar column to an array column with autocast.
+    """
+    table_name = "test_table_array_conversion"
+    column_name = "test_column"
+
+    # Create table with INTEGER
+    await db_connection.conn.execute(
+        f"CREATE TABLE {table_name} (id SERIAL PRIMARY KEY, {column_name} INTEGER)"
+    )
+
+    # Insert a scalar value
+    await db_connection.conn.execute(
+        f"INSERT INTO {table_name} ({column_name}) VALUES ($1)",
+        42,
+    )
+
+    # Convert to INTEGER[] using autocast
+    await db_backed_actions.modify_column_type(
+        table_name,
+        column_name,
+        explicit_data_type=ColumnType.INTEGER,
+        explicit_data_is_list=True,
+        autocast=True,
+    )
+
+    # Verify the scalar value was converted to a single-element array
+    rows = await db_connection.conn.fetch(f"SELECT * FROM {table_name}")
+    row = rows[0]
+    assert row
+    assert row[column_name] == [42]
+
+    # Verify the column type is now an array by checking the PostgreSQL catalog
+    type_info = await db_connection.conn.fetch(
+        """
+        SELECT data_type, udt_name 
+        FROM information_schema.columns 
+        WHERE table_name = $1 AND column_name = $2
+        """,
+        table_name,
+        column_name,
+    )
+    assert type_info[0]["data_type"] == "ARRAY"
