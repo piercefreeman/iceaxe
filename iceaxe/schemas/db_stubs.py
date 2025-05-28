@@ -112,7 +112,9 @@ class DBObjectPointer(BaseModel):
 
         # Pattern to match: table_name.[column_list].constraint_type
         # where column_list can be ['col'] or ['col1', 'col2', ...]
-        pattern = r"^([^.]+)\.(\[.*?\])\.(.+)$"
+        # The table_name can contain dots (for schema.table), so we need to be more careful
+        # We look for the pattern .[...]. to identify where the column list starts
+        pattern = r"^(.+)\.(\[.*?\])\.(.+)$"
         match = re.match(pattern, representation)
 
         if not match:
@@ -120,18 +122,28 @@ class DBObjectPointer(BaseModel):
 
         table_name, columns_part, constraint_type = match.groups()
 
-        # Parse the column list: ['col1', 'col2'] -> ["col1", "col2"]
-        # Remove brackets and split by comma, then clean up quotes and whitespace
+        # Validate that the column list contains properly quoted column names or is empty
+        # Remove brackets and check the content
         columns_str = columns_part.strip("[]")
         if not columns_str:
+            # Empty column list is valid
             return ConstraintPointerInfo(table_name, [], constraint_type)
 
-        # Split by comma and clean each column name
+        # Split by comma and validate each column name is properly quoted
         columns = []
         for col in columns_str.split(","):
-            col = col.strip().strip("'\"")
-            if col:
-                columns.append(col)
+            col = col.strip()
+            # Check if the column is properly quoted (single or double quotes)
+            if (col.startswith("'") and col.endswith("'")) or (
+                col.startswith('"') and col.endswith('"')
+            ):
+                # Remove quotes and add to list
+                col_name = col[1:-1]
+                if col_name:  # Don't add empty column names
+                    columns.append(col_name)
+            else:
+                # Column is not properly quoted, this is not a valid constraint pointer
+                return None
 
         return ConstraintPointerInfo(table_name, columns, constraint_type)
 
@@ -149,11 +161,18 @@ class DBObjectPointer(BaseModel):
 
         # Try simple table.column format
         representation = self.representation()
-        parts = representation.split(".")
-        if len(parts) >= 1:
-            return parts[0]
+        if not representation:
+            return None
 
-        return None
+        parts = representation.split(".")
+        if len(parts) >= 2:
+            # For schema.table.column format, take all parts except the last one
+            return ".".join(parts[:-1])
+        elif len(parts) == 1:
+            # Just a table name
+            return parts[0]
+        else:
+            return None
 
     def get_column_names(self) -> list[str]:
         """
@@ -169,11 +188,16 @@ class DBObjectPointer(BaseModel):
 
         # Try simple table.column format
         representation = self.representation()
+        if not representation:
+            return []
+
         parts = representation.split(".")
         if len(parts) >= 2:
-            return [parts[1]]
-
-        return []
+            # For schema.table.column format, take the last part as the column name
+            return [parts[-1]]
+        else:
+            # Just a table name, no columns
+            return []
 
 
 class DBTable(DBObject):
