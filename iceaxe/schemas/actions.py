@@ -299,7 +299,7 @@ class DatabaseActions:
                         - Scalar to array types (INTEGER → INTEGER[])
                         - Custom enum conversions (VARCHAR/TEXT → custom enum)
                         - Compatible numeric conversions (INTEGER → BIGINT)
-                        
+
                         When autocast=False, PostgreSQL will only allow the type change if it's
                         compatible without explicit casting, which may fail for many conversions.
 
@@ -308,7 +308,7 @@ class DatabaseActions:
             await actor.modify_column_type(
                 "products", "price", ColumnType.INTEGER, autocast=True
             )
-            
+
             # Manual migration with custom control
             await actor.modify_column_type(
                 "products", "price", ColumnType.INTEGER, autocast=False

@@ -1,3 +1,4 @@
+import warnings
 from datetime import date, datetime, time, timedelta
 from enum import Enum, IntEnum, StrEnum
 from typing import Generic, Sequence, TypeVar
@@ -20,6 +21,7 @@ from iceaxe.schemas.actions import (
     DryRunComment,
 )
 from iceaxe.schemas.db_memory_serializer import (
+    CompositePrimaryKeyConstraintError,
     DatabaseHandler,
     DatabaseMemorySerializer,
 )
@@ -1462,3 +1464,62 @@ def test_foreign_key_actions():
     assert fk_constraint.foreign_key_constraint.target_columns == frozenset({"id"})
     assert fk_constraint.foreign_key_constraint.on_delete == "CASCADE"
     assert fk_constraint.foreign_key_constraint.on_update == "CASCADE"
+
+
+def test_multiple_primary_keys_foreign_key_error():
+    """
+    Test that when a model has multiple primary keys and foreign key constraints,
+    we get a helpful error message explaining the issue.
+    """
+
+    class User(TableBase):
+        id: int = Field(primary_key=True)
+        tenant_id: int = Field(primary_key=True)  # Composite primary key
+        name: str
+
+    class Topic(TableBase):
+        id: str = Field(primary_key=True)
+        tenant_id: int = Field(primary_key=True)  # Composite primary key
+        title: str
+
+    class Rec(TableBase):
+        id: int = Field(primary_key=True, default=None)
+        creator_id: int = Field(
+            foreign_key="user.id"
+        )  # This will fail because user is leveraging our synthetic primary key
+        topic_id: str = Field(
+            foreign_key="topic.id"
+        )  # This will fail because topic is leveraging our synthetic primary key
+
+    migrator = DatabaseMemorySerializer()
+
+    with pytest.raises(CompositePrimaryKeyConstraintError) as exc_info:
+        db_objects = list(migrator.delegate([User, Topic, Rec]))
+        migrator.order_db_objects(db_objects)
+
+    # Check that the exception has the expected attributes
+    assert exc_info.value.missing_constraints == [("user", "id")]
+
+
+def test_multiple_primary_keys_warning():
+    """
+    Test that when a model has multiple primary keys, we get a warning.
+    """
+
+    class ExampleModel(TableBase):
+        value_a: int = Field(primary_key=True)
+        value_b: int = Field(primary_key=True)
+
+    migrator = DatabaseMemorySerializer()
+
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        list(migrator.delegate([ExampleModel]))
+
+        # Check that a warning was issued
+        assert len(w) == 1
+        assert issubclass(w[0].category, UserWarning)
+        warning_message = str(w[0].message)
+        assert "multiple fields marked as primary_key=True" in warning_message
+        assert "composite primary key constraint" in warning_message
+        assert "Consider using only one primary key field" in warning_message

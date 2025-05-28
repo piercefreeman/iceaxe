@@ -153,6 +153,90 @@ query = select((PersonFavoriteColor.person_id, FavoriteColor)).join(
 )
 ```
 
+## Composite Primary Keys and Foreign Key Constraints
+
+When working with foreign keys, it's important to understand how Iceaxe handles primary key constraints, especially when you have multiple fields marked as `primary_key=True`.
+
+### The Issue
+
+Consider this seemingly reasonable model definition:
+
+```python
+class User(TableBase):
+    id: int = Field(primary_key=True)
+    tenant_id: int = Field(primary_key=True)  # Composite primary key
+    name: str
+
+class Post(TableBase):
+    id: int = Field(primary_key=True)
+    user_id: int = Field(foreign_key="user.id")  # This will cause an error!
+    content: str
+```
+
+This will result in an error during migration generation because of a fundamental mismatch in how constraints work.
+
+### Why This Happens
+
+When you mark multiple fields as `primary_key=True`, Iceaxe creates a **single composite primary key constraint** rather than multiple individual primary key constraints. This is the correct PostgreSQL behavior - a table can only have one primary key, but that primary key can span multiple columns.
+
+The problem arises because foreign key constraints in PostgreSQL require the target column to have either:
+1. A primary key constraint, OR  
+2. A unique constraint
+
+When Iceaxe generates foreign key dependencies, it looks for either:
+- `"user.['id'].PRIMARY KEY"` (individual primary key on the `id` column)
+- `"user.['id'].UNIQUE"` (unique constraint on the `id` column)
+
+But when you have multiple `primary_key=True` fields, what actually gets created is:
+- `"user.['id', 'tenant_id'].PRIMARY KEY"` (composite primary key spanning both columns)
+
+The foreign key is looking for an individual constraint on just the `id` column, but the composite primary key constraint covers multiple columns.
+
+### Solutions
+
+**Approach 1 - Modify the current table (recommended):**
+
+Use a single primary key and add unique constraints for other uniqueness requirements:
+
+```python
+class User(TableBase):
+    id: int = Field(primary_key=True)  # Single primary key
+    tenant_id: int
+    name: str
+    
+    # Add uniqueness constraint if needed
+    table_args = [
+        UniqueConstraint(columns=["id", "tenant_id"])
+    ]
+
+class Post(TableBase):
+    id: int = Field(primary_key=True)
+    user_id: int = Field(foreign_key="user.id")  # Now works!
+    content: str
+```
+
+**Approach 2 - Modify the target tables:**
+
+Ensure each target table has individual primary keys on referenced columns. This requires changing other tables in your schema and should only be chosen if you specifically need composite primary keys:
+
+```python
+class User(TableBase):
+    id: int = Field(primary_key=True, unique=True)  # Add individual unique constraint
+    tenant_id: int = Field(primary_key=True)
+    name: str
+
+class Post(TableBase):
+    id: int = Field(primary_key=True)
+    user_id: int = Field(foreign_key="user.id")  # Now works because id has unique constraint
+    content: str
+```
+
+### Best Practices
+
+- **Use single primary keys when possible**: Most tables benefit from a simple auto-incrementing `id` field as the primary key
+- **Use unique constraints for business logic**: If you need uniqueness across multiple fields, use `UniqueConstraint` in `table_args`
+- **Reserve composite primary keys for junction tables**: They're most commonly used in many-to-many relationship tables where the combination of foreign keys forms the natural primary key
+
 ## Comparison with other ORMs
 
 In some other ORMs that you might have used, there is an explicit

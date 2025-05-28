@@ -1,3 +1,4 @@
+import warnings
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from inspect import isgenerator
@@ -52,6 +53,47 @@ from iceaxe.typing import (
 )
 
 NodeYieldType = Union[DBObject, DBObjectPointer, "NodeDefinition"]
+
+
+class CompositePrimaryKeyConstraintError(ValueError):
+    """
+    Raised when foreign key constraints cannot be resolved due to composite primary keys.
+
+    This occurs when a table has multiple fields marked as primary_key=True, creating
+    a composite primary key constraint, but foreign key constraints expect individual
+    primary key constraints on the target columns.
+
+    """
+
+    def __init__(self, missing_constraints: list[tuple[str, str]], base_message: str):
+        self.missing_constraints = missing_constraints
+        self.base_message = base_message
+
+        # Construct the detailed error message
+        error_msg = base_message
+
+        if missing_constraints:
+            error_msg += "\n\nThis error commonly occurs when you have multiple fields marked as primary_key=True in your model."
+            error_msg += "\nIceaxe creates a single composite primary key constraint, but foreign key constraints"
+            error_msg += (
+                "\nexpect individual primary key constraints on the target columns."
+            )
+            error_msg += "\n\nFor a detailed explanation of why this happens and how to fix it, see:"
+            error_msg += "\nhttps://mountaineer.sh/iceaxe/guides/relationships#composite-primary-keys-and-foreign-key-constraints"
+            error_msg += "\n\nTo fix this issue, choose one of these approaches:"
+            error_msg += "\n\nRecommended: Modify the current table"
+            error_msg += (
+                "\n   - Keep only one field as primary_key=True (e.g., just 'id')"
+            )
+            error_msg += "\n   - Add a UniqueConstraint if you need uniqueness across multiple fields"
+            error_msg += "\n   - This is usually the better design pattern"
+
+            # Show specific table/column combinations that are missing
+            error_msg += "\n\nCurrently missing individual primary key constraints:"
+            for table_name, column_name in missing_constraints:
+                error_msg += f"\n  - Table '{table_name}' needs a primary key on column '{column_name}'"
+
+        super().__init__(error_msg)
 
 
 @dataclass
@@ -125,9 +167,37 @@ class DatabaseMemorySerializer:
                             pointer.representation() in db_objects_by_name
                             for pointer in dep.pointers
                         ):
-                            raise ValueError(
-                                f"None of the OR pointers {[p.representation() for p in dep.pointers]} found in the defined database objects"
-                            )
+                            # Create a more helpful error message for common cases
+                            missing_pointers = [
+                                p.representation() for p in dep.pointers
+                            ]
+                            error_msg = f"None of the OR pointers {missing_pointers} found in the defined database objects"
+
+                            # Check if this is the common case of multiple primary keys causing foreign key issues
+                            primary_key_pointers = []
+                            for p in dep.pointers:
+                                parsed = p.parse_constraint_pointer()
+                                if parsed and parsed.constraint_type == "PRIMARY KEY":
+                                    primary_key_pointers.append(p)
+
+                            if primary_key_pointers:
+                                # Extract table and column info from the primary key pointers
+                                primary_key_info: list[tuple[str, str]] = []
+                                for pointer in primary_key_pointers:
+                                    table_name = pointer.get_table_name()
+                                    column_names = pointer.get_column_names()
+
+                                    if table_name and column_names:
+                                        for column_name in column_names:
+                                            primary_key_info.append(
+                                                (table_name, column_name)
+                                            )
+
+                                if primary_key_info:
+                                    raise CompositePrimaryKeyConstraintError(
+                                        primary_key_info, error_msg
+                                    )
+                            raise ValueError(error_msg)
                     elif dep.representation() not in db_objects_by_name:
                         raise ValueError(
                             f"Pointer {dep.representation()} not found in the defined database objects"
@@ -543,6 +613,18 @@ class DatabaseHandler:
     ):
         if not keys:
             return
+
+        # Warn users about potential issues with multiple primary keys
+        if len(keys) > 1:
+            column_names = [key for key, _ in keys]
+            warnings.warn(
+                f"Table '{table.get_table_name()}' has multiple fields marked as primary_key=True: {column_names}. "
+                f"This creates a composite primary key constraint, which may cause issues with foreign key "
+                f"constraints that expect individual primary keys on target columns. "
+                f"Consider using only one primary key field and adding UniqueConstraint for uniqueness instead.",
+                UserWarning,
+                stacklevel=3,
+            )
 
         columns = [key for key, _ in keys]
         yield from self._yield_nodes(

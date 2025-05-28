@@ -1,4 +1,6 @@
+import re
 from abc import abstractmethod
+from dataclasses import dataclass
 from typing import Self, Union
 
 from pydantic import BaseModel, Field, model_validator
@@ -10,6 +12,15 @@ from iceaxe.schemas.actions import (
     DatabaseActions,
     ForeignKeyConstraint,
 )
+
+
+@dataclass
+class ConstraintPointerInfo:
+    """Information parsed from a constraint pointer representation."""
+
+    table_name: str
+    column_names: list[str]
+    constraint_type: str
 
 
 class DBObject(BaseModel):
@@ -85,6 +96,108 @@ class DBObjectPointer(BaseModel):
     @abstractmethod
     def representation(self) -> str:
         pass
+
+    def parse_constraint_pointer(self) -> ConstraintPointerInfo | None:
+        """
+        Parse a constraint pointer representation into its components.
+
+        Returns:
+            ConstraintPointerInfo | None: Parsed constraint information or None if not a constraint pointer
+
+        Examples:
+            "table.['column'].PRIMARY KEY" -> ConstraintPointerInfo("table", ["column"], "PRIMARY KEY")
+            "table.['col1', 'col2'].UNIQUE" -> ConstraintPointerInfo("table", ["col1", "col2"], "UNIQUE")
+        """
+        representation = self.representation()
+
+        # Pattern to match: table_name.[column_list].constraint_type
+        # where column_list can be ['col'] or ['col1', 'col2', ...]
+        # The table_name can contain dots (for schema.table), so we need to be more careful
+        # We look for the pattern .[...]. to identify where the column list starts
+        pattern = r"^(.+)\.(\[.*?\])\.(.+)$"
+        match = re.match(pattern, representation)
+
+        if not match:
+            return None
+
+        table_name, columns_part, constraint_type = match.groups()
+
+        # Validate that the column list contains properly quoted column names or is empty
+        # Remove brackets and check the content
+        columns_str = columns_part.strip("[]")
+        if not columns_str:
+            # Empty column list is valid
+            return ConstraintPointerInfo(table_name, [], constraint_type)
+
+        # Split by comma and validate each column name is properly quoted
+        columns = []
+        for col in columns_str.split(","):
+            col = col.strip()
+            # Check if the column is properly quoted (single or double quotes)
+            if (col.startswith("'") and col.endswith("'")) or (
+                col.startswith('"') and col.endswith('"')
+            ):
+                # Remove quotes and add to list
+                col_name = col[1:-1]
+                if col_name:  # Don't add empty column names
+                    columns.append(col_name)
+            else:
+                # Column is not properly quoted, this is not a valid constraint pointer
+                return None
+
+        return ConstraintPointerInfo(table_name, columns, constraint_type)
+
+    def get_table_name(self) -> str | None:
+        """
+        Extract the table name from the pointer representation.
+
+        Returns:
+            str | None: The table name if it can be parsed, None otherwise
+        """
+        # Try constraint pointer format first
+        parsed = self.parse_constraint_pointer()
+        if parsed is not None:
+            return parsed.table_name
+
+        # Try simple table.column format
+        representation = self.representation()
+        if not representation:
+            return None
+
+        parts = representation.split(".")
+        if len(parts) >= 2:
+            # For schema.table.column format, take all parts except the last one
+            return ".".join(parts[:-1])
+        elif len(parts) == 1:
+            # Just a table name
+            return parts[0]
+        else:
+            return None
+
+    def get_column_names(self) -> list[str]:
+        """
+        Extract column names from the pointer representation.
+
+        Returns:
+            list[str]: List of column names if they can be parsed, empty list otherwise
+        """
+        # Try constraint pointer format first
+        parsed = self.parse_constraint_pointer()
+        if parsed is not None:
+            return parsed.column_names
+
+        # Try simple table.column format
+        representation = self.representation()
+        if not representation:
+            return []
+
+        parts = representation.split(".")
+        if len(parts) >= 2:
+            # For schema.table.column format, take the last part as the column name
+            return [parts[-1]]
+        else:
+            # Just a table name, no columns
+            return []
 
 
 class DBTable(DBObject):
