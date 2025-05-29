@@ -273,7 +273,7 @@ class TableBase(BaseModel, metaclass=DBModelMetaclass):
         :param name: Attribute name
         :param value: New value
         """
-        if name in self.model_fields:
+        if name in self.__class__.model_fields:
             self.modified_attrs[name] = value
             for callback in self.modified_attrs_callbacks:
                 callback(self)

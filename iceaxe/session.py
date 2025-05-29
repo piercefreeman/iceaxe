@@ -593,7 +593,7 @@ class DBConnection:
                     modified_attrs = frozenset(
                         k
                         for k, v in obj.get_modified_attributes().items()
-                        if not obj.model_fields[k].exclude
+                        if not obj.__class__.model_fields[k].exclude
                     )
                     if modified_attrs:
                         updates_by_fields[modified_attrs].append(obj)
