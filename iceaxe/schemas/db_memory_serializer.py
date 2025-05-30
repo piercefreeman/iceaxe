@@ -454,12 +454,12 @@ class DatabaseHandler:
                         primitive_type=(
                             ColumnType.TIMESTAMP_WITH_TIME_ZONE
                             if info.postgres_config.timezone
-                            else ColumnType.TIMESTAMP
+                            else ColumnType.TIMESTAMP_WITHOUT_TIME_ZONE
                         )
                     )
                 # Assume no timezone if not specified
                 return TypeDeclarationResponse(
-                    primitive_type=ColumnType.TIMESTAMP,
+                    primitive_type=ColumnType.TIMESTAMP_WITHOUT_TIME_ZONE,
                 )
             elif is_type_compatible(annotation, date):  # type: ignore
                 return TypeDeclarationResponse(
@@ -471,11 +471,11 @@ class DatabaseHandler:
                         primitive_type=(
                             ColumnType.TIME_WITH_TIME_ZONE
                             if info.postgres_config.timezone
-                            else ColumnType.TIME
+                            else ColumnType.TIME_WITHOUT_TIME_ZONE
                         ),
                     )
                 return TypeDeclarationResponse(
-                    primitive_type=ColumnType.TIME,
+                    primitive_type=ColumnType.TIME_WITHOUT_TIME_ZONE,
                 )
             elif is_type_compatible(annotation, timedelta):  # type: ignore
                 return TypeDeclarationResponse(

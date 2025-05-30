@@ -143,6 +143,52 @@ class ValueEnumInt(IntEnum):
                 )
             ],
         ),
+        # Test PostgreSQL's storage format for timestamp without timezone
+        (
+            """
+            CREATE TABLE exampledbmodel (
+                id SERIAL PRIMARY KEY,
+                created_at TIMESTAMP NOT NULL
+            );
+            """,
+            [
+                (
+                    DBColumn(
+                        table_name="exampledbmodel",
+                        column_name="created_at",
+                        column_type=ColumnType.TIMESTAMP_WITHOUT_TIME_ZONE,
+                        column_is_list=False,
+                        nullable=False,
+                    ),
+                    [
+                        DBTable(table_name="exampledbmodel"),
+                    ],
+                )
+            ],
+        ),
+        # Test PostgreSQL's storage format for timestamp with timezone
+        (
+            """
+            CREATE TABLE exampledbmodel (
+                id SERIAL PRIMARY KEY,
+                created_at TIMESTAMPTZ NOT NULL
+            );
+            """,
+            [
+                (
+                    DBColumn(
+                        table_name="exampledbmodel",
+                        column_name="created_at",
+                        column_type=ColumnType.TIMESTAMP_WITH_TIME_ZONE,
+                        column_is_list=False,
+                        nullable=False,
+                    ),
+                    [
+                        DBTable(table_name="exampledbmodel"),
+                    ],
+                )
+            ],
+        ),
     ],
 )
 async def test_simple_db_serializer(

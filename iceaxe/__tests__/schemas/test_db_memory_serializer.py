@@ -750,7 +750,7 @@ def test_enum_column_assignment(clear_all_database_objects):
                     DBColumn(
                         table_name="exampledbmodel",
                         column_name="standard_datetime",
-                        column_type=ColumnType.TIMESTAMP,
+                        column_type=ColumnType.TIMESTAMP_WITHOUT_TIME_ZONE,
                         column_is_list=False,
                         nullable=False,
                     ),
@@ -810,7 +810,7 @@ def test_enum_column_assignment(clear_all_database_objects):
                     DBColumn(
                         table_name="exampledbmodel",
                         column_name="standard_time",
-                        column_type=ColumnType.TIME,
+                        column_type=ColumnType.TIME_WITHOUT_TIME_ZONE,
                         column_is_list=False,
                         nullable=False,
                     ),

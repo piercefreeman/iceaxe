@@ -263,8 +263,8 @@ async def test_add_column_any_type(
         (ColumnType.SERIAL, ColumnType.INTEGER),
         (ColumnType.BIGSERIAL, ColumnType.BIGINT),
         (ColumnType.CHAR, "character"),
-        (ColumnType.TIME, "time without time zone"),
-        (ColumnType.TIMESTAMP, "timestamp without time zone"),
+        (ColumnType.TIME_WITHOUT_TIME_ZONE, "time without time zone"),
+        (ColumnType.TIMESTAMP_WITHOUT_TIME_ZONE, "timestamp without time zone"),
     )
 
     allowed_values = {enum_value.value}
@@ -365,7 +365,7 @@ async def test_modify_column_type(
         (ColumnType.VARCHAR, ColumnType.DATE, "2023-01-01", "2023-01-01", True),
         (
             ColumnType.TEXT,
-            ColumnType.TIMESTAMP,
+            ColumnType.TIMESTAMP_WITHOUT_TIME_ZONE,
             "2023-01-01 12:00:00",
             "2023-01-01 12:00:00",
             True,
@@ -443,7 +443,7 @@ async def test_modify_column_type_with_autocast(
     actual_value = row[column_name]
     if isinstance(expected_value, str) and to_type in [
         ColumnType.DATE,
-        ColumnType.TIMESTAMP,
+        ColumnType.TIMESTAMP_WITHOUT_TIME_ZONE,
     ]:
         # For date/timestamp, convert to string for comparison
         actual_value = str(actual_value)
@@ -1158,7 +1158,7 @@ async def test_modify_column_type_date_to_timestamp(
     await db_backed_actions.modify_column_type(
         table_name,
         column_name,
-        explicit_data_type=ColumnType.TIMESTAMP,
+        explicit_data_type=ColumnType.TIMESTAMP_WITHOUT_TIME_ZONE,
         autocast=False,
     )
 

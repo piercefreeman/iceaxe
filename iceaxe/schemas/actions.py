@@ -408,8 +408,8 @@ class DatabaseActions:
                 return f"{column_name}::boolean"
             elif explicit_data_type in [
                 ColumnType.DATE,
-                ColumnType.TIMESTAMP,
-                ColumnType.TIME,
+                ColumnType.TIMESTAMP_WITHOUT_TIME_ZONE,
+                ColumnType.TIME_WITHOUT_TIME_ZONE,
             ]:
                 # Date/time conversions
                 return f"{column_name}::{explicit_data_type.value}"
