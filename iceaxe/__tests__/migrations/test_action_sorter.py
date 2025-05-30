@@ -19,7 +19,7 @@ class MockNode(DBObject):
     async def create(self, actor: DatabaseActions):
         pass
 
-    async def migrate(self, previous: "MockNode", actor: DatabaseActions):
+    async def migrate(self, previous: DBObject, actor: DatabaseActions):
         pass
 
     async def destroy(self, actor: DatabaseActions):
