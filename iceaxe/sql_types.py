@@ -90,22 +90,29 @@ class ColumnType(StrEnum):
     OID = "oid"
 
     @classmethod
-    def from_sql_type(cls, value: str) -> "ColumnType":
+    def _missing_(cls, value: object):
         """
-        Create a ColumnType from a SQL type string, handling SQL standard aliases.
+        Handle SQL standard aliases when the exact enum value is not found.
 
         The SQL standard requires that "timestamp" be equivalent to "timestamp without time zone"
         and "time" be equivalent to "time without time zone".
         """
+        # Only handle string values for SQL type aliases
+        if not isinstance(value, str):
+            return None
+
         aliases = {
             "timestamp": "timestamp without time zone",
             "time": "time without time zone",
         }
 
+        # Check if this is an alias we can resolve
         if value in aliases:
-            value = aliases[value]
+            # Return the actual enum member for the aliased value
+            return cls(aliases[value])
 
-        return cls(value)
+        # If not an alias, let the default enum behavior handle it
+        return None
 
 
 class ConstraintType(StrEnum):

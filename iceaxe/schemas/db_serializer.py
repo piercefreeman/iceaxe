@@ -119,9 +119,9 @@ class DatabaseSerializer:
                 yield column_type, column_type_deps
             elif row["data_type"] == "ARRAY":
                 column_is_list = True
-                column_type = ColumnType.from_sql_type(row["element_type"])
+                column_type = ColumnType(row["element_type"])
             else:
-                column_type = ColumnType.from_sql_type(row["data_type"])
+                column_type = ColumnType(row["data_type"])
 
             yield (
                 DBColumn(

@@ -380,4 +380,4 @@ def test_postgres_datetime_timezone_casting(
     """
 
     # Test that ColumnType enum can handle PostgreSQL's storage formats and aliases
-    assert ColumnType.from_sql_type(sql_type_string) == expected_column_type
+    assert ColumnType(sql_type_string) == expected_column_type
