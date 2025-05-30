@@ -10,6 +10,7 @@ from iceaxe.base import TableBase
 from iceaxe.comparison import ComparisonType, FieldComparison
 from iceaxe.field import DBFieldClassDefinition, DBFieldInfo
 from iceaxe.queries_str import QueryLiteral
+from iceaxe.sql_types import ColumnType
 from iceaxe.typing import column
 
 
@@ -354,3 +355,29 @@ def test_force_join_constraints(
     )
     forced = comparison.force_join_constraints()
     assert forced.comparison == expected_comparison
+
+
+@pytest.mark.parametrize(
+    "sql_type_string, expected_column_type",
+    [
+        ("timestamp", ColumnType.TIMESTAMP_WITHOUT_TIME_ZONE),  # Tests aliasing
+        ("timestamp without time zone", ColumnType.TIMESTAMP_WITHOUT_TIME_ZONE),
+        ("timestamp with time zone", ColumnType.TIMESTAMP_WITH_TIME_ZONE),
+        ("time", ColumnType.TIME_WITHOUT_TIME_ZONE),  # Tests aliasing
+        ("time without time zone", ColumnType.TIME_WITHOUT_TIME_ZONE),
+        ("time with time zone", ColumnType.TIME_WITH_TIME_ZONE),
+    ],
+)
+def test_postgres_datetime_timezone_casting(
+    sql_type_string: str, expected_column_type: ColumnType
+):
+    """
+    Test that PostgresDateTime fields with different timezone configurations
+    are properly handled by the ColumnType enum, specifically testing that
+    PostgreSQL's storage format ('timestamp without time zone') can be parsed.
+    This also tests that SQL standard aliases like "timestamp" correctly map
+    to "timestamp without time zone".
+    """
+
+    # Test that ColumnType enum can handle PostgreSQL's storage formats and aliases
+    assert ColumnType(sql_type_string) == expected_column_type

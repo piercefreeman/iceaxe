@@ -8,6 +8,10 @@ class ColumnType(StrEnum):
     # the column they can be case-insensitive, but when we're casting from
     # the database to memory they must align with the on-disk representation
     # which is lowercase.
+    #
+    # Note: The SQL standard requires that writing just "timestamp" be equivalent
+    # to "timestamp without time zone", and PostgreSQL honors that behavior.
+    # Similarly, "time" is equivalent to "time without time zone".
 
     # Numeric Types
     SMALLINT = "smallint"
@@ -33,9 +37,9 @@ class ColumnType(StrEnum):
 
     # Date/Time Types
     DATE = "date"
-    TIME = "time"
+    TIME_WITHOUT_TIME_ZONE = "time without time zone"
     TIME_WITH_TIME_ZONE = "time with time zone"
-    TIMESTAMP = "timestamp"
+    TIMESTAMP_WITHOUT_TIME_ZONE = "timestamp without time zone"
     TIMESTAMP_WITH_TIME_ZONE = "timestamp with time zone"
     INTERVAL = "interval"
 
@@ -85,6 +89,31 @@ class ColumnType(StrEnum):
     # Object Identifier Type
     OID = "oid"
 
+    @classmethod
+    def _missing_(cls, value: object):
+        """
+        Handle SQL standard aliases when the exact enum value is not found.
+
+        The SQL standard requires that "timestamp" be equivalent to "timestamp without time zone"
+        and "time" be equivalent to "time without time zone".
+        """
+        # Only handle string values for SQL type aliases
+        if not isinstance(value, str):
+            return None
+
+        aliases = {
+            "timestamp": "timestamp without time zone",
+            "time": "time without time zone",
+        }
+
+        # Check if this is an alias we can resolve
+        if value in aliases:
+            # Return the actual enum member for the aliased value
+            return cls(aliases[value])
+
+        # If not an alias, let the default enum behavior handle it
+        return None
+
 
 class ConstraintType(StrEnum):
     PRIMARY_KEY = "PRIMARY KEY"
@@ -105,9 +134,9 @@ def get_python_to_sql_mapping():
         bool: ColumnType.BOOLEAN,
         bytes: ColumnType.BYTEA,
         UUID: ColumnType.UUID,
-        datetime: ColumnType.TIMESTAMP,
+        datetime: ColumnType.TIMESTAMP_WITHOUT_TIME_ZONE,
         date: ColumnType.DATE,
-        time: ColumnType.TIME,
+        time: ColumnType.TIME_WITHOUT_TIME_ZONE,
         timedelta: ColumnType.INTERVAL,
     }
 
