@@ -1,4 +1,5 @@
 from abc import abstractmethod
+from contextlib import asynccontextmanager
 
 from iceaxe.migrations.migrator import Migrator
 from iceaxe.session import DBConnection
@@ -20,12 +21,23 @@ class MigrationRevisionBase:
     up_revision: str
     down_revision: str | None
 
+    use_transaction: bool = True
+    """
+    Disables the transaction for the current migration. Only do this if you're
+    confident that the migration will succeed on the first try, or is otherwise
+    independent so it can be run multiple times.
+
+    This can speed up migrations, and in some cases might be even fully required for your
+    production database to avoid deadlocks when interacting with hot tables.
+
+    """
+
     async def _handle_up(self, db_connection: DBConnection):
         """
         Internal method to handle the up migration.
         """
         # Isolated migrator context just for this migration
-        async with db_connection.transaction():
+        async with self._optional_transaction(db_connection):
             migrator = Migrator(db_connection)
             await self.up(migrator)
             await migrator.set_active_revision(self.up_revision)
@@ -34,10 +46,18 @@ class MigrationRevisionBase:
         """
         Internal method to handle the down migration.
         """
-        async with db_connection.transaction():
+        async with self._optional_transaction(db_connection):
             migrator = Migrator(db_connection)
             await self.down(migrator)
             await migrator.set_active_revision(self.down_revision)
+
+    @asynccontextmanager
+    async def _optional_transaction(self, db_connection: DBConnection):
+        if self.use_transaction:
+            async with db_connection.transaction():
+                yield
+        else:
+            yield
 
     @abstractmethod
     async def up(self, migrator: Migrator):
