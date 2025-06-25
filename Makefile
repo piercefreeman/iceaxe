@@ -47,11 +47,8 @@ lint-validation-iceaxe:
 
 # Tests
 test-iceaxe:
-	(docker compose -f docker-compose.test.yml up -d)
-	@$(call wait-for-postgres,30,5438)
 	@set -e; \
 	$(call test-common,$(ICEAXE),$(MOUNTAINEER_PLUGINS_NAME))
-	(docker compose -f docker-compose.test.yml down)
 
 #
 # Common helper functions

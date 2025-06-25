@@ -13,8 +13,10 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "docker>=7.1.0",
     "mountaineer>=0.8.0",
     "mypy>=1.15.0",
+    "pydantic>=2,<2.11",
     "pyinstrument>=5.0.1",
     "pyright>=1.1.396",
     "pytest>=8.3.5",
