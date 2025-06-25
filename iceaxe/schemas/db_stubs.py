@@ -1,7 +1,7 @@
 import re
 from abc import abstractmethod
 from dataclasses import dataclass
-from typing import Self, Union
+from typing import Generic, Self, TypeVar, Union, cast
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -23,11 +23,17 @@ class ConstraintPointerInfo:
     constraint_type: str
 
 
-class DBObject(BaseModel):
+T = TypeVar("T", bound="DBObject")
+
+
+class DBObject(BaseModel, Generic[T]):
     """
-    A subclass for all models that are intended to store
-    an in-memory representation of a database object that
-    we can perform diff support against.
+    A subclass for all models that are intended to store an in-memory representation
+    of a database object that we can perform diff support against.
+
+    Our Generic[T] here is a bit of a hack to allow us to properly typehint the expected
+    API contract of child implementations. `Self` in pyright results in fixing the API
+    contract to the base class DBObject whereas we want it to adjust to the child class.
 
     """
 
@@ -49,14 +55,14 @@ class DBObject(BaseModel):
         pass
 
     @abstractmethod
-    async def migrate(self, previous: Self, actor: DatabaseActions):
+    async def migrate(self, previous: T, actor: DatabaseActions):
         pass
 
     @abstractmethod
     async def destroy(self, actor: DatabaseActions):
         pass
 
-    def merge(self, other: Self):
+    def merge(self, other: T) -> T:
         """
         If there is another object with the same .reference() as this object
         this function is in charge of merging the two objects. By default
@@ -72,7 +78,7 @@ class DBObject(BaseModel):
             raise ValueError(
                 f"Conflicting definitions for {self.representation()}\n{self} != {other}"
             )
-        return self
+        return cast(T, self)
 
 
 class DBObjectPointer(BaseModel):
@@ -200,7 +206,7 @@ class DBObjectPointer(BaseModel):
             return []
 
 
-class DBTable(DBObject):
+class DBTable(DBObject["DBTable"]):
     table_name: str
 
     def representation(self):
@@ -210,7 +216,7 @@ class DBTable(DBObject):
         actor.add_comment(f"\nNEW TABLE: {self.table_name}\n")
         await actor.add_table(self.table_name)
 
-    async def migrate(self, previous: "DBObject", actor: DatabaseActions):
+    async def migrate(self, previous: Self, actor: DatabaseActions):
         raise NotImplementedError
 
     async def destroy(self, actor: DatabaseActions):
@@ -229,7 +235,7 @@ class DBColumnPointer(DBColumnBase, DBObjectPointer):
     pass
 
 
-class DBColumn(DBColumnBase, DBObject):
+class DBColumn(DBColumnBase, DBObject["DBColumn"]):
     # Use a type pointer here to avoid full equality checks
     # of the values; if the pointer is the same, we can avoid
     # updating the column type during a migration.
@@ -270,7 +276,7 @@ class DBColumn(DBColumnBase, DBObject):
         # like not-null.
         await actor.drop_column(self.table_name, self.column_name)
 
-    async def migrate(self, previous: "DBColumn", actor: DatabaseActions):
+    async def migrate(self, previous: Self, actor: DatabaseActions):
         if (
             self.column_type != previous.column_type
             or self.column_is_list != previous.column_is_list
@@ -301,7 +307,7 @@ class DBColumn(DBColumnBase, DBObject):
             await actor.drop_not_null(self.table_name, self.column_name)
 
 
-class DBConstraint(DBObject):
+class DBConstraint(DBObject["DBConstraint"]):
     table_name: str
     constraint_name: str = Field(exclude=True)
     columns: frozenset[str]
@@ -402,7 +408,7 @@ class DBConstraint(DBObject):
                 constraint_name=self.constraint_name,
             )
 
-    async def migrate(self, previous: "DBConstraint", actor: DatabaseActions):
+    async def migrate(self, previous: Self, actor: DatabaseActions):
         if self.constraint_type != previous.constraint_type:
             raise NotImplementedError
 
@@ -439,7 +445,7 @@ class DBTypePointer(DBTypeBase, DBObjectPointer):
     pass
 
 
-class DBType(DBTypeBase, DBObject):
+class DBType(DBTypeBase, DBObject["DBType"]):
     values: frozenset[str]
 
     # Captures the columns that use this type value, (table_name, column_name)
@@ -453,7 +459,7 @@ class DBType(DBTypeBase, DBObject):
     async def destroy(self, actor: DatabaseActions):
         await actor.drop_type(self.name)
 
-    async def migrate(self, previous: "DBType", actor: DatabaseActions):
+    async def migrate(self, previous: Self, actor: DatabaseActions):
         previous_values = {value for value in previous.values}
         next_values = {value for value in self.values}
 
