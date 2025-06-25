@@ -96,7 +96,7 @@ jobs:
         uses: pypa/cibuildwheel@v2.16.5
         env:
           CIBW_ARCHS_LINUX: x86_64 aarch64
-          CIBW_BUILD: cp311-* cp312-*
+          CIBW_BUILD: cp311-* cp312-* cp313-*
           CIBW_SKIP: "*-musllinux*"
           CIBW_MANYLINUX_AARCH64_IMAGE: manylinux2014
           CIBW_MANYLINUX_X86_64_IMAGE: manylinux2014
