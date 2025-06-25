@@ -245,6 +245,7 @@ Auto-generated migrations with `autocast=True` are designed to be safe for most 
 
 If you have data that cannot be automatically converted (e.g., non-numeric strings when converting to integers), the migration will fail and you'll need to clean up the data first or provide custom conversion logic.
 
+
 ## Applying migrations
 
 When you're happy with your migration, you can apply it to your database by running
@@ -267,3 +268,229 @@ $ poetry run migrate-rollback
 
 🪃 Rolled back migration to None in 0.01s
 ```
+
+## Advanced Migration Patterns
+
+While basic migrations work great for most scenarios, production databases with high traffic volumes require more sophisticated approaches. Here's where things get _really_ interesting.
+
+### When to Disable Transactions
+
+By default, Iceaxe wraps each migration in a database transaction. This is usually what you want - if something goes wrong, everything gets rolled back cleanly. But sometimes transactions can actually work against you.
+
+Here's when you might want to set `use_transaction = False` on your migration:
+
+**Hot Tables with Heavy Write Traffic**: If you're migrating a table that gets hundreds of writes per second, you might run into deadlock situations. PostgreSQL's lock queue means that if your migration needs an `ACCESS EXCLUSIVE` lock and there's already a long-running query, _every other query_ gets stuck waiting in line.
+
+**Operations That Can't Be Rolled Back**: Some PostgreSQL operations can't be rolled back even within a transaction. Creating indexes concurrently is the classic example - Postgres will just throw an error if you try to do it inside a transaction block.
+
+**Very Long-Running Migrations**: If your migration takes 30+ minutes to run, keeping a transaction open that long can cause problems for connection poolers and increase the chance of conflicts.
+
+Here's how you disable transactions:
+
+```python
+class MigrationRevision(MigrationRevisionBase):
+    up_revision: str = "1729278608"
+    down_revision: str | None = None
+    
+    use_transaction: bool = False  # No transaction wrapper
+    
+    async def up(self, migrator: Migrator):
+        # This migration runs without a transaction
+        await migrator.actor.create_index_concurrently(
+            table_name="employee", 
+            index_name="idx_employee_email",
+            columns=["email"]
+        )
+```
+
+**⚠️ Warning**: Disabling transactions means you lose rollback safety. If your migration fails halfway through, you'll need to manually clean up the partial changes. Only disable transactions when you're confident the migration will succeed or when the operations are naturally idempotent.
+
+### The NOT NULL Constraint Problem
+
+Here's a scenario that bites a _lot_ of people in production: You have a busy `users` table with millions of rows getting constant updates, and you want to add a new required field.
+
+**Don't do this on a hot table:**
+
+```python
+async def up(self, migrator: Migrator):
+    # This will lock your entire table during validation!
+    await migrator.actor.add_column(table_name="users", column_name="department", explicit_data_type=ColumnType.TEXT)
+    await migrator.actor.add_not_null(table_name="users", column_name="department")
+```
+
+The problem: Adding `NOT NULL` requires PostgreSQL to scan the entire table to verify that no existing rows have `NULL` values. On a large table, this can take minutes and requires an `ACCESS EXCLUSIVE` lock that blocks _all_ reads and writes.
+
+**Do this instead:**
+
+```python
+class MigrationRevision(MigrationRevisionBase):
+    use_transaction: bool = False  # We'll handle this manually
+    
+    async def up(self, migrator: Migrator):
+        # Step 1: Add the column as nullable (fast)
+        await migrator.actor.add_column(
+            table_name="users", 
+            column_name="department", 
+            explicit_data_type=ColumnType.TEXT
+        )
+        
+        # Step 2: Add a CHECK constraint without validation (very fast)
+        await migrator.raw_sql("""
+            ALTER TABLE users 
+            ADD CONSTRAINT users_department_not_null 
+            CHECK (department IS NOT NULL) NOT VALID
+        """)
+        
+        # Step 3: Backfill existing data (can be done in batches)
+        await migrator.raw_sql("""
+            UPDATE users 
+            SET department = 'Engineering' 
+            WHERE department IS NULL
+        """)
+        
+        # Step 4: Validate the constraint (scans table but allows reads/writes)
+        await migrator.raw_sql("""
+            ALTER TABLE users VALIDATE CONSTRAINT users_department_not_null
+        """)
+        
+        # Step 5 (optional): Convert to a real NOT NULL constraint 
+        # This step is only supported in PostgreSQL 12+
+        await migrator.raw_sql("""
+            ALTER TABLE users ALTER COLUMN department SET NOT NULL
+        """)
+        
+        # Step 6: Clean up the check constraint
+        await migrator.raw_sql("""
+            ALTER TABLE users DROP CONSTRAINT users_department_not_null
+        """)
+```
+
+Why this works better:
+
+- **Step 1** is instant - just adds metadata about the column
+- **Step 2** takes an `ACCESS EXCLUSIVE` lock but only for milliseconds since no validation happens
+- **Step 3** can be done in batches if needed, and you control the data being inserted
+- **Step 4** scans the whole table but only needs a `SHARE UPDATE EXCLUSIVE` lock, so normal operations continue
+- **Steps 5-6** are optional cleanup if you want a "real" `NOT NULL` constraint
+
+### Making Migrations Idempotent
+
+The worst thing that can happen during a deployment is having a migration fail halfway through, leaving your database in an unknown state. Idempotent migrations are designed to be run multiple times safely.
+
+Here are the key patterns:
+
+**Always check if changes already exist:**
+
+```python
+async def up(self, migrator: Migrator):
+    # Check if column already exists before adding it
+    result = await migrator.db_connection.conn.fetch("""
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name = 'users' AND column_name = 'department'
+    """)
+    
+    if not result:
+        await migrator.actor.add_column(
+            table_name="users", 
+            column_name="department", 
+            explicit_data_type=ColumnType.TEXT
+        )
+```
+
+**Use `IF NOT EXISTS` when possible:**
+
+```python
+async def up(self, migrator: Migrator):
+    # PostgreSQL has built-in idempotency for many operations
+    await migrator.raw_sql("""
+        CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_users_email 
+        ON users (email)
+    """)
+    
+    await migrator.raw_sql("""
+        ALTER TABLE users 
+        ADD CONSTRAINT IF NOT EXISTS users_email_unique 
+        UNIQUE (email)
+    """)
+```
+
+**Handle data migrations carefully:**
+
+```python
+async def up(self, migrator: Migrator):
+    # For data migrations, use UPDATE WHERE conditions
+    # that won't affect already-migrated rows
+    await migrator.raw_sql("""
+        UPDATE users 
+        SET status = 'active' 
+        WHERE status IS NULL  -- Only update unmigrated rows
+    """)
+    
+    # Or use INSERT ... ON CONFLICT for new data
+    await migrator.raw_sql("""
+        INSERT INTO user_preferences (user_id, theme) 
+        SELECT id, 'dark' FROM users 
+        WHERE id NOT IN (SELECT user_id FROM user_preferences)
+    """)
+```
+
+### Migration Deployment Strategies
+
+For high-traffic applications, consider splitting complex migrations across multiple deployments:
+
+**Deploy 1**: Add new columns, populate them
+```python
+async def up(self, migrator: Migrator):
+    await migrator.actor.add_column(table_name="orders", column_name="payment_method", explicit_data_type=ColumnType.TEXT)
+    # Populate from existing data
+    await migrator.raw_sql("UPDATE orders SET payment_method = 'credit_card' WHERE payment_method IS NULL")
+```
+
+**Deploy 2**: Add constraints once data is clean
+```python
+async def up(self, migrator: Migrator):
+    # Data is already populated, safe to add constraint
+    await migrator.actor.add_not_null(table_name="orders", column_name="payment_method")
+```
+
+**Deploy 3**: Remove old columns after application is updated
+```python
+async def up(self, migrator: Migrator):
+    # Application code no longer references old_payment_field
+    await migrator.actor.drop_column(table_name="orders", column_name="old_payment_field")
+```
+
+This "expand-migrate-contract" pattern keeps your application running throughout the entire process.
+
+### Monitoring Migration Performance
+
+Long-running migrations can be scary in production. Here are some ways to keep tabs on what's happening:
+
+```python
+async def up(self, migrator: Migrator):
+    # Log progress for long operations
+    await migrator.raw_sql("SELECT 'Starting user migration...'")
+    
+    start_time = time.time()
+    
+    # Batch large updates to avoid holding locks too long
+    batch_size = 1000
+    offset = 0
+    
+    while True:
+        result = await migrator.db_connection.conn.execute("""
+            UPDATE users 
+            SET last_login = COALESCE(last_login, created_at)
+            WHERE id >= $1 AND id < $2 AND last_login IS NULL
+        """, offset, offset + batch_size)
+        
+        if result == "UPDATE 0":
+            break
+            
+        offset += batch_size
+        elapsed = time.time() - start_time
+        print(f"Processed {offset} users in {elapsed:.2f}s")
+```
+
+You can also query PostgreSQL's `pg_stat_progress_create_index` view to monitor index creation progress, or `pg_locks` to see what locks your migration is holding.

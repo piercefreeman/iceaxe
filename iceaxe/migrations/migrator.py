@@ -86,3 +86,16 @@ class Migrator:
 
         result = await self.db_connection.conn.fetch(query)
         return cast(str | None, result[0]["active_revision"] if result else None)
+
+    async def raw_sql(self, query: str, *args):
+        """
+        Shortcut to execute a raw SQL query against the database. Raw SQL can be more useful
+        than using ORM objects within migrations, because you can interact with the old & new data
+        schemas via text (whereas the runtime ORM is only aware of the current schema).
+
+        ```python {{sticky: True}}
+        await migrator.execute("CREATE TABLE IF NOT EXISTS users (id SERIAL PRIMARY KEY, name VARCHAR(255))")
+        ```
+
+        """
+        await self.db_connection.conn.execute(query, *args)
