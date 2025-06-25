@@ -34,7 +34,7 @@ jobs:
       - name: Install uv and with python version ${{ matrix.python-version }}
         uses: astral-sh/setup-uv@v6.3.0
         with:
-          enable-cache: true
+          enable-cache: false
           python-version: ${{ matrix.python-version }}
       - name: Run tests
         run: uv run pytest -v --continue-on-collection-errors
@@ -46,9 +46,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install uv with Python 3.13
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v6.3.0
         with:
-          enable-cache: true
+          enable-cache: false
           python-version: 3.13
       - name: Run lint
         run: make lint
@@ -63,9 +63,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install uv with Python 3.13
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v6.3.0
         with:
-          enable-cache: true
+          enable-cache: false
           python-version: 3.13
 
       - name: Update version
