@@ -595,6 +595,28 @@ class FunctionBuilder:
         )
         return cast(str, metadata)
 
+    def unnest(self, field: list[T]) -> T:
+        """
+        Expands an array into a set of rows.
+
+        :param field: The array field to unnest
+        :return: A function metadata object that resolves to the element type
+
+        ```python {{sticky: True}}
+        # Unnest an array column
+        tags = await conn.execute(select(func.unnest(Article.tags)))
+
+        # Use with joins
+        result = await conn.execute(
+            select((User.name, func.unnest(User.favorite_colors)))
+            .where(User.id == user_id)
+        )
+        ```
+        """
+        metadata = self._column_to_metadata(field)
+        metadata.literal = QueryLiteral(f"unnest({metadata.literal})")
+        return cast(T, metadata)
+
     # Type Conversion Functions
     def cast(self, field: Any, type_name: Type[T]) -> T:
         """
