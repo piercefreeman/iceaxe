@@ -345,6 +345,131 @@ def test_function_transformations():
     )
 
 
+def test_array_operators():
+    # Test ANY operator
+    new_query = (
+        QueryBuilder()
+        .select(ComplexDemo)
+        .where(func.any(ComplexDemo.string_list, "python") == True)  # noqa: E712
+    )
+    assert new_query.build() == (
+        'SELECT "complexdemo"."id" AS "complexdemo_id", "complexdemo"."string_list" AS "complexdemo_string_list", '
+        '"complexdemo"."json_data" AS "complexdemo_json_data" FROM "complexdemo" WHERE \'python\' = ANY("complexdemo"."string_list") = $1',
+        [True],
+    )
+
+    # Test ALL operator
+    new_query = (
+        QueryBuilder()
+        .select(ComplexDemo)
+        .where(func.all(ComplexDemo.string_list, "active") == True)  # noqa: E712
+    )
+    assert new_query.build() == (
+        'SELECT "complexdemo"."id" AS "complexdemo_id", "complexdemo"."string_list" AS "complexdemo_string_list", '
+        '"complexdemo"."json_data" AS "complexdemo_json_data" FROM "complexdemo" WHERE \'active\' = ALL("complexdemo"."string_list") = $1',
+        [True],
+    )
+
+    # Test array_contains operator (@>)
+    new_query = (
+        QueryBuilder()
+        .select(ComplexDemo)
+        .where(
+            func.array_contains(ComplexDemo.string_list, ["python", "django"]) == True  # noqa: E712
+        )
+    )
+    assert new_query.build() == (
+        'SELECT "complexdemo"."id" AS "complexdemo_id", "complexdemo"."string_list" AS "complexdemo_string_list", '
+        '"complexdemo"."json_data" AS "complexdemo_json_data" FROM "complexdemo" WHERE "complexdemo"."string_list" @> ARRAY[\'python\',\'django\'] = $1',
+        [True],
+    )
+
+    # Test array_contained_by operator (<@)
+    new_query = (
+        QueryBuilder()
+        .select(ComplexDemo)
+        .where(
+            func.array_contained_by(  # noqa: E712
+                ComplexDemo.string_list, ["python", "java", "go", "rust"]
+            )
+            == True
+        )
+    )
+    assert new_query.build() == (
+        'SELECT "complexdemo"."id" AS "complexdemo_id", "complexdemo"."string_list" AS "complexdemo_string_list", '
+        '"complexdemo"."json_data" AS "complexdemo_json_data" FROM "complexdemo" WHERE "complexdemo"."string_list" <@ ARRAY[\'python\',\'java\',\'go\',\'rust\'] = $1',
+        [True],
+    )
+
+    # Test array_overlaps operator (&&)
+    new_query = (
+        QueryBuilder()
+        .select(ComplexDemo)
+        .where(
+            func.array_overlaps(  # noqa: E712
+                ComplexDemo.string_list, ["python", "data-science", "ml"]
+            )
+            == True
+        )
+    )
+    assert new_query.build() == (
+        'SELECT "complexdemo"."id" AS "complexdemo_id", "complexdemo"."string_list" AS "complexdemo_string_list", '
+        '"complexdemo"."json_data" AS "complexdemo_json_data" FROM "complexdemo" WHERE "complexdemo"."string_list" && ARRAY[\'python\',\'data-science\',\'ml\'] = $1',
+        [True],
+    )
+
+
+def test_array_manipulation_functions():
+    # Test array_append
+    new_query = QueryBuilder().select(
+        func.array_append(ComplexDemo.string_list, "new-tag")
+    )
+    assert new_query.build() == (
+        'SELECT array_append("complexdemo"."string_list", \'new-tag\') AS aggregate_0 FROM "complexdemo"',
+        [],
+    )
+
+    # Test array_prepend
+    new_query = QueryBuilder().select(
+        func.array_prepend("featured", ComplexDemo.string_list)
+    )
+    assert new_query.build() == (
+        'SELECT array_prepend(\'featured\', "complexdemo"."string_list") AS aggregate_0 FROM "complexdemo"',
+        [],
+    )
+
+    # Test array_cat with field - this would require a join in practice
+    # For now, let's test with a simpler case using the same table
+    # or we could test array_cat with a literal array which is more common
+
+    # Test array_cat with literal array
+    new_query = QueryBuilder().select(
+        func.array_cat(ComplexDemo.string_list, ["admin", "superuser"])
+    )
+    assert new_query.build() == (
+        'SELECT array_cat("complexdemo"."string_list", ARRAY[\'admin\',\'superuser\']) AS aggregate_0 FROM "complexdemo"',
+        [],
+    )
+
+    # Test array_position
+    new_query = QueryBuilder().select(
+        func.array_position(ComplexDemo.string_list, "python")
+    )
+    assert new_query.build() == (
+        'SELECT array_position("complexdemo"."string_list", \'python\') AS aggregate_0 FROM "complexdemo"',
+        [],
+    )
+
+    # Test array_remove
+    new_query = QueryBuilder().select(
+        func.array_remove(ComplexDemo.string_list, "deprecated")
+    )
+    assert new_query.build() == (
+        'SELECT array_remove("complexdemo"."string_list", \'deprecated\') AS aggregate_0 FROM "complexdemo"',
+        [],
+    )
+
+
 def test_invalid_where_condition():
     with pytest.raises(ValueError):
         QueryBuilder().select(UserDemo.id).where("invalid condition")  # type: ignore
