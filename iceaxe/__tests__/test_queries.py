@@ -350,24 +350,24 @@ def test_array_operators():
     new_query = (
         QueryBuilder()
         .select(ComplexDemo)
-        .where(func.any(ComplexDemo.string_list, "python") == True)  # noqa: E712
+        .where(func.any(ComplexDemo.string_list) == "python")
     )
     assert new_query.build() == (
         'SELECT "complexdemo"."id" AS "complexdemo_id", "complexdemo"."string_list" AS "complexdemo_string_list", '
-        '"complexdemo"."json_data" AS "complexdemo_json_data" FROM "complexdemo" WHERE \'python\' = ANY("complexdemo"."string_list") = $1',
-        [True],
+        '"complexdemo"."json_data" AS "complexdemo_json_data" FROM "complexdemo" WHERE \'python\' = ANY("complexdemo"."string_list")',
+        [],
     )
 
     # Test ALL operator
     new_query = (
         QueryBuilder()
         .select(ComplexDemo)
-        .where(func.all(ComplexDemo.string_list, "active") == True)  # noqa: E712
+        .where(func.all(ComplexDemo.string_list) == "active")
     )
     assert new_query.build() == (
         'SELECT "complexdemo"."id" AS "complexdemo_id", "complexdemo"."string_list" AS "complexdemo_string_list", '
-        '"complexdemo"."json_data" AS "complexdemo_json_data" FROM "complexdemo" WHERE \'active\' = ALL("complexdemo"."string_list") = $1',
-        [True],
+        '"complexdemo"."json_data" AS "complexdemo_json_data" FROM "complexdemo" WHERE \'active\' = ALL("complexdemo"."string_list")',
+        [],
     )
 
     # Test array_contains operator (@>)
@@ -416,6 +416,32 @@ def test_array_operators():
         'SELECT "complexdemo"."id" AS "complexdemo_id", "complexdemo"."string_list" AS "complexdemo_string_list", '
         '"complexdemo"."json_data" AS "complexdemo_json_data" FROM "complexdemo" WHERE "complexdemo"."string_list" && ARRAY[\'python\',\'data-science\',\'ml\'] = $1',
         [True],
+    )
+
+
+def test_array_comparison_operators():
+    # Test ANY with different operators
+    new_query = (
+        QueryBuilder()
+        .select(ComplexDemo)
+        .where(func.any(ComplexDemo.string_list) != "inactive")
+    )
+    assert new_query.build() == (
+        'SELECT "complexdemo"."id" AS "complexdemo_id", "complexdemo"."string_list" AS "complexdemo_string_list", '
+        '"complexdemo"."json_data" AS "complexdemo_json_data" FROM "complexdemo" WHERE \'inactive\' != ANY("complexdemo"."string_list")',
+        [],
+    )
+
+    # Test ALL with >= operator
+    new_query = (
+        QueryBuilder()
+        .select(ComplexDemo)
+        .where(func.all(ComplexDemo.string_list) >= "a")
+    )
+    assert new_query.build() == (
+        'SELECT "complexdemo"."id" AS "complexdemo_id", "complexdemo"."string_list" AS "complexdemo_string_list", '
+        '"complexdemo"."json_data" AS "complexdemo_json_data" FROM "complexdemo" WHERE \'a\' >= ALL("complexdemo"."string_list")',
+        [],
     )
 
 

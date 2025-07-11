@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import Any, Literal, Type, TypeVar, cast
+from typing import Any, Generic, Literal, Type, TypeVar, cast
 
 from iceaxe.base import (
     DBFieldClassDefinition,
@@ -191,6 +191,140 @@ class TSVectorFunctionMetadata(FunctionMetadata):
         metadata = FunctionBuilder._column_to_metadata(other)
         self.literal = QueryLiteral(f"{self.literal} || {metadata.literal}")
         return self
+
+
+class BooleanExpression(FieldComparison):
+    """
+    A FieldComparison that represents a complete boolean expression.
+    """
+
+    def __init__(self, expression: FunctionMetadata):
+        # Initialize with dummy values since we override to_query
+        super().__init__(left=expression, comparison=ComparisonType.EQ, right=True)
+        self.expression = expression
+
+    def to_query(self, start: int = 1) -> tuple[QueryLiteral, list[Any]]:
+        """
+        Return the expression directly without additional comparison.
+        """
+        return self.expression.literal, []
+
+
+class ArrayComparison(Generic[T], ComparisonBase[bool]):
+    """
+    Provides comparison methods for SQL array operations (ANY/ALL).
+    This class enables ergonomic syntax for array comparisons.
+
+    ```python {{sticky: True}}
+    # Using ArrayComparison for ANY operations:
+    func.any(Article.tags) == 'python'
+    func.any(User.follower_ids) == current_user_id
+
+    # Using ArrayComparison for ALL operations:
+    func.all(Project.member_statuses) == 'active'
+    func.all(Student.test_scores) >= 70
+    ```
+    """
+
+    def __init__(
+        self, array_metadata: FunctionMetadata, operation: Literal["ANY", "ALL"]
+    ):
+        """
+        Initialize an ArrayComparison object.
+
+        :param array_metadata: The metadata for the array field
+        :param operation: The SQL operation (ANY or ALL)
+        """
+        self.array_metadata = array_metadata
+        self.operation = operation
+
+    def __eq__(self, other: T) -> BooleanExpression:  # type: ignore
+        """
+        Creates an equality comparison with the array elements.
+
+        :param other: The value to compare with array elements
+        :return: A boolean expression object that resolves to a boolean
+        """
+        return self._create_comparison(other, "=")
+
+    def __ne__(self, other: T) -> BooleanExpression:  # type: ignore
+        """
+        Creates a not-equal comparison with the array elements.
+
+        :param other: The value to compare with array elements
+        :return: A boolean expression object that resolves to a boolean
+        """
+        return self._create_comparison(other, "!=")
+
+    def __lt__(self, other: T) -> BooleanExpression:
+        """
+        Creates a less-than comparison with the array elements.
+
+        :param other: The value to compare with array elements
+        :return: A boolean expression object that resolves to a boolean
+        """
+        return self._create_comparison(other, "<")
+
+    def __le__(self, other: T) -> BooleanExpression:
+        """
+        Creates a less-than-or-equal comparison with the array elements.
+
+        :param other: The value to compare with array elements
+        :return: A boolean expression object that resolves to a boolean
+        """
+        return self._create_comparison(other, "<=")
+
+    def __gt__(self, other: T) -> BooleanExpression:
+        """
+        Creates a greater-than comparison with the array elements.
+
+        :param other: The value to compare with array elements
+        :return: A boolean expression object that resolves to a boolean
+        """
+        return self._create_comparison(other, ">")
+
+    def __ge__(self, other: T) -> BooleanExpression:
+        """
+        Creates a greater-than-or-equal comparison with the array elements.
+
+        :param other: The value to compare with array elements
+        :return: A boolean expression object that resolves to a boolean
+        """
+        return self._create_comparison(other, ">=")
+
+    def _create_comparison(self, value: T, operator: str) -> BooleanExpression:
+        """
+        Internal method to create the comparison SQL.
+
+        :param value: The value to compare with array elements
+        :param operator: The SQL comparison operator
+        :return: A boolean expression object that resolves to a boolean
+        """
+        # Handle simple values
+        if isinstance(value, (str, int, float, bool)):
+            value_literal = f"'{value}'" if isinstance(value, str) else str(value)
+        else:
+            # For complex values, use the metadata
+            value_metadata = FunctionBuilder._column_to_metadata(value)
+            value_literal = str(value_metadata.literal)
+
+        # Create the comparison as a FunctionMetadata
+        result = FunctionMetadata(
+            literal=QueryLiteral(
+                f"{value_literal} {operator} {self.operation}({self.array_metadata.literal})"
+            ),
+            original_field=self.array_metadata.original_field,
+        )
+        # Return a BooleanExpression that generates the SQL directly
+        return BooleanExpression(result)
+
+    def to_query(self) -> tuple[QueryLiteral, list[Any]]:
+        """
+        Converts the array comparison to its SQL representation.
+
+        :return: A tuple of the SQL query string and list of parameter values
+        """
+        return self.array_metadata.literal, []
 
 
 class FunctionBuilder:
@@ -618,81 +752,65 @@ class FunctionBuilder:
         return cast(T, metadata)
 
     # Array Operators and Functions
-    def any(self, array_field: list[T], value: T) -> FunctionMetadata:
+    def any(self, array_field: list[T]) -> ArrayComparison[T]:
         """
-        Creates an ANY array comparison that checks if the value equals any element in the array.
+        Creates an ANY array comparison that can be used with comparison operators.
 
         :param array_field: The array field to check against
-        :param value: The value to compare with array elements
-        :return: A function metadata object that resolves to a boolean
+        :return: An ArrayComparison object that supports comparison operators
 
         ```python {{sticky: True}}
         # Check if 'python' is in the tags array
         has_python = await conn.execute(
             select(Article)
-            .where(func.any(Article.tags, 'python') == True)
+            .where(func.any(Article.tags) == 'python')
         )
 
         # Check if user id is in the follower_ids array
         is_follower = await conn.execute(
             select(User)
-            .where(func.any(User.follower_ids, current_user_id) == True)
+            .where(func.any(User.follower_ids) == current_user_id)
+        )
+
+        # Check if any score is above threshold
+        has_passing = await conn.execute(
+            select(Student)
+            .where(func.any(Student.test_scores) >= 70)
         )
         ```
         """
         array_metadata = self._column_to_metadata(array_field)
+        return ArrayComparison(array_metadata, "ANY")
 
-        # For simple values, we can use the value directly
-        if isinstance(value, (str, int, float, bool)):
-            value_literal = f"'{value}'" if isinstance(value, str) else str(value)
-        else:
-            # For complex values, use the metadata
-            value_metadata = self._column_to_metadata(value)
-            value_literal = str(value_metadata.literal)
-
-        # Create the ANY comparison as a FunctionMetadata
-        array_metadata.literal = QueryLiteral(
-            f"{value_literal} = ANY({array_metadata.literal})"
-        )
-        return array_metadata
-
-    def all(self, array_field: list[T], value: T) -> FunctionMetadata:
+    def all(self, array_field: list[T]) -> ArrayComparison[T]:
         """
-        Creates an ALL array comparison that checks if the value equals all elements in the array.
+        Creates an ALL array comparison that can be used with comparison operators.
 
         :param array_field: The array field to check against
-        :param value: The value to compare with array elements
-        :return: A function metadata object that resolves to a boolean
+        :return: An ArrayComparison object that supports comparison operators
 
         ```python {{sticky: True}}
         # Check if all elements in status array are 'active'
         all_active = await conn.execute(
             select(Project)
-            .where(func.all(Project.member_statuses, 'active') == True)
+            .where(func.all(Project.member_statuses) == 'active')
         )
 
         # Check if all scores are above threshold
         all_passing = await conn.execute(
             select(Student)
-            .where(func.all(Student.test_scores, 70) == True)
+            .where(func.all(Student.test_scores) >= 70)
+        )
+
+        # Check if all values are non-null
+        all_present = await conn.execute(
+            select(Survey)
+            .where(func.all(Survey.responses) != None)
         )
         ```
         """
         array_metadata = self._column_to_metadata(array_field)
-
-        # For simple values, we can use the value directly
-        if isinstance(value, (str, int, float, bool)):
-            value_literal = f"'{value}'" if isinstance(value, str) else str(value)
-        else:
-            # For complex values, use the metadata
-            value_metadata = self._column_to_metadata(value)
-            value_literal = str(value_metadata.literal)
-
-        # Create the ALL comparison as a FunctionMetadata
-        array_metadata.literal = QueryLiteral(
-            f"{value_literal} = ALL({array_metadata.literal})"
-        )
-        return array_metadata
+        return ArrayComparison(array_metadata, "ALL")
 
     def array_contains(
         self, array_field: list[T], contained: list[T]
