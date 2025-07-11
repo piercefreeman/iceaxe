@@ -5,6 +5,7 @@ import pytest
 
 from iceaxe.__tests__.conf_models import (
     ArtifactDemo,
+    ComplexDemo,
     Employee,
     FunctionDemoModel,
     UserDemo,
@@ -313,6 +314,13 @@ def test_function_transformations():
         'SELECT array_agg("functiondemomodel"."name") AS aggregate_0, '
         'string_agg("functiondemomodel"."name", \',\') AS aggregate_1 '
         'FROM "functiondemomodel"',
+        [],
+    )
+
+    # Test unnest function
+    new_query = QueryBuilder().select(func.unnest(ComplexDemo.string_list))
+    assert new_query.build() == (
+        'SELECT unnest("complexdemo"."string_list") AS aggregate_0 FROM "complexdemo"',
         [],
     )
 
