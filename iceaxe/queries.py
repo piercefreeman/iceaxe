@@ -11,7 +11,11 @@ from iceaxe.base import (
     DBModelMetaclass,
     TableBase,
 )
-from iceaxe.comparison import ComparisonGroupType, FieldComparison, FieldComparisonGroup
+from iceaxe.comparison import (
+    ComparisonGroupType,
+    FieldComparison,
+    FieldComparisonGroup,
+)
 from iceaxe.functions import FunctionMetadata
 from iceaxe.queries_str import (
     QueryElementBase,

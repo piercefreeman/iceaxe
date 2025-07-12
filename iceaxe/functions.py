@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import Any, Literal, Type, TypeVar, cast
+from typing import Any, Generic, Literal, Type, TypeVar, cast
 
 from iceaxe.base import (
     DBFieldClassDefinition,
@@ -191,6 +191,140 @@ class TSVectorFunctionMetadata(FunctionMetadata):
         metadata = FunctionBuilder._column_to_metadata(other)
         self.literal = QueryLiteral(f"{self.literal} || {metadata.literal}")
         return self
+
+
+class BooleanExpression(FieldComparison):
+    """
+    A FieldComparison that represents a complete boolean expression.
+    """
+
+    def __init__(self, expression: FunctionMetadata):
+        # Initialize with dummy values since we override to_query
+        super().__init__(left=expression, comparison=ComparisonType.EQ, right=True)
+        self.expression = expression
+
+    def to_query(self, start: int = 1) -> tuple[QueryLiteral, list[Any]]:
+        """
+        Return the expression directly without additional comparison.
+        """
+        return self.expression.literal, []
+
+
+class ArrayComparison(Generic[T], ComparisonBase[bool]):
+    """
+    Provides comparison methods for SQL array operations (ANY/ALL).
+    This class enables ergonomic syntax for array comparisons.
+
+    ```python {{sticky: True}}
+    # Using ArrayComparison for ANY operations:
+    func.any(Article.tags) == 'python'
+    func.any(User.follower_ids) == current_user_id
+
+    # Using ArrayComparison for ALL operations:
+    func.all(Project.member_statuses) == 'active'
+    func.all(Student.test_scores) >= 70
+    ```
+    """
+
+    def __init__(
+        self, array_metadata: FunctionMetadata, operation: Literal["ANY", "ALL"]
+    ):
+        """
+        Initialize an ArrayComparison object.
+
+        :param array_metadata: The metadata for the array field
+        :param operation: The SQL operation (ANY or ALL)
+        """
+        self.array_metadata = array_metadata
+        self.operation = operation
+
+    def __eq__(self, other: T) -> BooleanExpression:  # type: ignore
+        """
+        Creates an equality comparison with the array elements.
+
+        :param other: The value to compare with array elements
+        :return: A boolean expression object that resolves to a boolean
+        """
+        return self._create_comparison(other, "=")
+
+    def __ne__(self, other: T) -> BooleanExpression:  # type: ignore
+        """
+        Creates a not-equal comparison with the array elements.
+
+        :param other: The value to compare with array elements
+        :return: A boolean expression object that resolves to a boolean
+        """
+        return self._create_comparison(other, "!=")
+
+    def __lt__(self, other: T) -> BooleanExpression:
+        """
+        Creates a less-than comparison with the array elements.
+
+        :param other: The value to compare with array elements
+        :return: A boolean expression object that resolves to a boolean
+        """
+        return self._create_comparison(other, "<")
+
+    def __le__(self, other: T) -> BooleanExpression:
+        """
+        Creates a less-than-or-equal comparison with the array elements.
+
+        :param other: The value to compare with array elements
+        :return: A boolean expression object that resolves to a boolean
+        """
+        return self._create_comparison(other, "<=")
+
+    def __gt__(self, other: T) -> BooleanExpression:
+        """
+        Creates a greater-than comparison with the array elements.
+
+        :param other: The value to compare with array elements
+        :return: A boolean expression object that resolves to a boolean
+        """
+        return self._create_comparison(other, ">")
+
+    def __ge__(self, other: T) -> BooleanExpression:
+        """
+        Creates a greater-than-or-equal comparison with the array elements.
+
+        :param other: The value to compare with array elements
+        :return: A boolean expression object that resolves to a boolean
+        """
+        return self._create_comparison(other, ">=")
+
+    def _create_comparison(self, value: T, operator: str) -> BooleanExpression:
+        """
+        Internal method to create the comparison SQL.
+
+        :param value: The value to compare with array elements
+        :param operator: The SQL comparison operator
+        :return: A boolean expression object that resolves to a boolean
+        """
+        # Handle simple values
+        if isinstance(value, (str, int, float, bool)):
+            value_literal = f"'{value}'" if isinstance(value, str) else str(value)
+        else:
+            # For complex values, use the metadata
+            value_metadata = FunctionBuilder._column_to_metadata(value)
+            value_literal = str(value_metadata.literal)
+
+        # Create the comparison as a FunctionMetadata
+        result = FunctionMetadata(
+            literal=QueryLiteral(
+                f"{value_literal} {operator} {self.operation}({self.array_metadata.literal})"
+            ),
+            original_field=self.array_metadata.original_field,
+        )
+        # Return a BooleanExpression that generates the SQL directly
+        return BooleanExpression(result)
+
+    def to_query(self) -> tuple[QueryLiteral, list[Any]]:
+        """
+        Converts the array comparison to its SQL representation.
+
+        :return: A tuple of the SQL query string and list of parameter values
+        """
+        return self.array_metadata.literal, []
 
 
 class FunctionBuilder:
@@ -616,6 +750,376 @@ class FunctionBuilder:
         metadata = self._column_to_metadata(field)
         metadata.literal = QueryLiteral(f"unnest({metadata.literal})")
         return cast(T, metadata)
+
+    # Array Operators and Functions
+    def any(self, array_field: list[T]) -> ArrayComparison[T]:
+        """
+        Creates an ANY array comparison that can be used with comparison operators.
+
+        :param array_field: The array field to check against
+        :return: An ArrayComparison object that supports comparison operators
+
+        ```python {{sticky: True}}
+        # Check if 'python' is in the tags array
+        has_python = await conn.execute(
+            select(Article)
+            .where(func.any(Article.tags) == 'python')
+        )
+
+        # Check if user id is in the follower_ids array
+        is_follower = await conn.execute(
+            select(User)
+            .where(func.any(User.follower_ids) == current_user_id)
+        )
+
+        # Check if any score is above threshold
+        has_passing = await conn.execute(
+            select(Student)
+            .where(func.any(Student.test_scores) >= 70)
+        )
+        ```
+        """
+        array_metadata = self._column_to_metadata(array_field)
+        return ArrayComparison(array_metadata, "ANY")
+
+    def all(self, array_field: list[T]) -> ArrayComparison[T]:
+        """
+        Creates an ALL array comparison that can be used with comparison operators.
+
+        :param array_field: The array field to check against
+        :return: An ArrayComparison object that supports comparison operators
+
+        ```python {{sticky: True}}
+        # Check if all elements in status array are 'active'
+        all_active = await conn.execute(
+            select(Project)
+            .where(func.all(Project.member_statuses) == 'active')
+        )
+
+        # Check if all scores are above threshold
+        all_passing = await conn.execute(
+            select(Student)
+            .where(func.all(Student.test_scores) >= 70)
+        )
+
+        # Check if all values are non-null
+        all_present = await conn.execute(
+            select(Survey)
+            .where(func.all(Survey.responses) != None)
+        )
+        ```
+        """
+        array_metadata = self._column_to_metadata(array_field)
+        return ArrayComparison(array_metadata, "ALL")
+
+    def array_contains(
+        self, array_field: list[T], contained: list[T]
+    ) -> FunctionMetadata:
+        """
+        Creates an array contains comparison using the @> operator.
+        Checks if the array field contains all elements of the contained array.
+
+        :param array_field: The array field to check
+        :param contained: The array that should be contained
+        :return: A function metadata object that resolves to a boolean
+
+        ```python {{sticky: True}}
+        # Check if tags contain both 'python' and 'django'
+        has_both = await conn.execute(
+            select(Article)
+            .where(func.array_contains(Article.tags, ['python', 'django']) == True)
+        )
+
+        # Check if permissions contain required permissions
+        has_perms = await conn.execute(
+            select(User)
+            .where(func.array_contains(User.permissions, ['read', 'write']) == True)
+        )
+        ```
+        """
+        array_metadata = self._column_to_metadata(array_field)
+
+        # Convert the contained list to PostgreSQL array syntax
+        if all(isinstance(x, str) for x in contained):
+            contained_literal = "ARRAY[" + ",".join(f"'{x}'" for x in contained) + "]"
+        else:
+            contained_literal = "ARRAY[" + ",".join(str(x) for x in contained) + "]"
+
+        # Create the @> comparison as a FunctionMetadata
+        array_metadata.literal = QueryLiteral(
+            f"{array_metadata.literal} @> {contained_literal}"
+        )
+        return array_metadata
+
+    def array_contained_by(
+        self, array_field: list[T], container: list[T]
+    ) -> FunctionMetadata:
+        """
+        Creates an array contained by comparison using the <@ operator.
+        Checks if all elements of the array field are contained in the container array.
+
+        :param array_field: The array field to check
+        :param container: The array that should contain all elements
+        :return: A function metadata object that resolves to a boolean
+
+        ```python {{sticky: True}}
+        # Check if user's skills are all from allowed skills
+        valid_skills = await conn.execute(
+            select(User)
+            .where(func.array_contained_by(User.skills, ['python', 'java', 'go', 'rust']) == True)
+        )
+
+        # Check if selected options are all from valid options
+        valid_selection = await conn.execute(
+            select(Survey)
+            .where(func.array_contained_by(Survey.selected, [1, 2, 3, 4, 5]) == True)
+        )
+        ```
+        """
+        array_metadata = self._column_to_metadata(array_field)
+
+        # Convert the container list to PostgreSQL array syntax
+        if all(isinstance(x, str) for x in container):
+            container_literal = "ARRAY[" + ",".join(f"'{x}'" for x in container) + "]"
+        else:
+            container_literal = "ARRAY[" + ",".join(str(x) for x in container) + "]"
+
+        # Create the <@ comparison as a FunctionMetadata
+        array_metadata.literal = QueryLiteral(
+            f"{array_metadata.literal} <@ {container_literal}"
+        )
+        return array_metadata
+
+    def array_overlaps(self, array_field: list[T], other: list[T]) -> FunctionMetadata:
+        """
+        Creates an array overlap comparison using the && operator.
+        Checks if the arrays have any elements in common.
+
+        :param array_field: The first array field
+        :param other: The second array to check for overlap
+        :return: A function metadata object that resolves to a boolean
+
+        ```python {{sticky: True}}
+        # Check if article tags overlap with user interests
+        matching_interests = await conn.execute(
+            select(Article)
+            .where(func.array_overlaps(Article.tags, ['python', 'data-science', 'ml']) == True)
+        )
+
+        # Check if available times overlap
+        has_common_time = await conn.execute(
+            select(Meeting)
+            .where(func.array_overlaps(Meeting.available_slots, [1, 2, 3]) == True)
+        )
+        ```
+        """
+        array_metadata = self._column_to_metadata(array_field)
+
+        # Convert the other list to PostgreSQL array syntax
+        if all(isinstance(x, str) for x in other):
+            other_literal = "ARRAY[" + ",".join(f"'{x}'" for x in other) + "]"
+        else:
+            other_literal = "ARRAY[" + ",".join(str(x) for x in other) + "]"
+
+        # Create the && comparison as a FunctionMetadata
+        array_metadata.literal = QueryLiteral(
+            f"{array_metadata.literal} && {other_literal}"
+        )
+        return array_metadata
+
+    def array_append(self, array_field: list[T], element: T) -> list[T]:
+        """
+        Appends an element to the end of an array.
+
+        :param array_field: The array field to append to
+        :param element: The element to append
+        :return: A function metadata object that resolves to an array
+
+        ```python {{sticky: True}}
+        # Append a tag to the array
+        updated = await conn.execute(
+            update(Article)
+            .set(tags=func.array_append(Article.tags, 'new-tag'))
+            .where(Article.id == article_id)
+        )
+
+        # Select with appended element
+        with_extra = await conn.execute(
+            select(func.array_append(User.skills, 'python'))
+        )
+        ```
+        """
+        array_metadata = self._column_to_metadata(array_field)
+
+        # Handle element literal
+        if isinstance(element, str):
+            element_literal = f"'{element}'"
+        elif isinstance(element, (int, float, bool)):
+            element_literal = str(element)
+        else:
+            element_metadata = self._column_to_metadata(element)
+            element_literal = str(element_metadata.literal)
+
+        array_metadata.literal = QueryLiteral(
+            f"array_append({array_metadata.literal}, {element_literal})"
+        )
+        return cast(list[T], array_metadata)
+
+    def array_prepend(self, element: T, array_field: list[T]) -> list[T]:
+        """
+        Prepends an element to the beginning of an array.
+
+        :param element: The element to prepend
+        :param array_field: The array field to prepend to
+        :return: A function metadata object that resolves to an array
+
+        ```python {{sticky: True}}
+        # Prepend a tag to the array
+        updated = await conn.execute(
+            update(Article)
+            .set(tags=func.array_prepend('featured', Article.tags))
+            .where(Article.id == article_id)
+        )
+
+        # Select with prepended element
+        with_prefix = await conn.execute(
+            select(func.array_prepend('beginner', User.skill_levels))
+        )
+        ```
+        """
+        array_metadata = self._column_to_metadata(array_field)
+
+        # Handle element literal
+        if isinstance(element, str):
+            element_literal = f"'{element}'"
+        elif isinstance(element, (int, float, bool)):
+            element_literal = str(element)
+        else:
+            element_metadata = self._column_to_metadata(element)
+            element_literal = str(element_metadata.literal)
+
+        array_metadata.literal = QueryLiteral(
+            f"array_prepend({element_literal}, {array_metadata.literal})"
+        )
+        return cast(list[T], array_metadata)
+
+    def array_cat(self, array1: list[T], array2: list[T]) -> list[T]:
+        """
+        Concatenates two arrays.
+
+        :param array1: The first array
+        :param array2: The second array
+        :return: A function metadata object that resolves to an array
+
+        ```python {{sticky: True}}
+        # Concatenate two arrays
+        combined_tags = await conn.execute(
+            select(func.array_cat(Article.tags, Article.categories))
+        )
+
+        # Merge user permissions
+        all_perms = await conn.execute(
+            update(User)
+            .set(permissions=func.array_cat(User.permissions, ['admin', 'superuser']))
+            .where(User.id == user_id)
+        )
+        ```
+        """
+        array1_metadata = self._column_to_metadata(array1)
+
+        # Handle array2 - could be a field or a literal list
+        if isinstance(array2, list):
+            # Convert literal list to PostgreSQL array
+            if all(isinstance(x, str) for x in array2):
+                array2_literal = "ARRAY[" + ",".join(f"'{x}'" for x in array2) + "]"
+            else:
+                array2_literal = "ARRAY[" + ",".join(str(x) for x in array2) + "]"
+        else:
+            array2_metadata = self._column_to_metadata(array2)
+            array2_literal = str(array2_metadata.literal)
+
+        array1_metadata.literal = QueryLiteral(
+            f"array_cat({array1_metadata.literal}, {array2_literal})"
+        )
+        return cast(list[T], array1_metadata)
+
+    def array_position(self, array_field: list[T], element: T) -> int:
+        """
+        Returns the position of the first occurrence of an element in an array (1-based).
+        Returns NULL if the element is not found.
+
+        :param array_field: The array field to search in
+        :param element: The element to find
+        :return: A function metadata object that resolves to an integer
+
+        ```python {{sticky: True}}
+        # Find position of a tag
+        position = await conn.execute(
+            select(func.array_position(Article.tags, 'python'))
+        )
+
+        # Find position in a list of ids
+        rank = await conn.execute(
+            select(func.array_position(Contest.winner_ids, User.id))
+            .where(Contest.id == contest_id)
+        )
+        ```
+        """
+        array_metadata = self._column_to_metadata(array_field)
+
+        # Handle element literal
+        if isinstance(element, str):
+            element_literal = f"'{element}'"
+        elif isinstance(element, (int, float, bool)):
+            element_literal = str(element)
+        else:
+            element_metadata = self._column_to_metadata(element)
+            element_literal = str(element_metadata.literal)
+
+        array_metadata.literal = QueryLiteral(
+            f"array_position({array_metadata.literal}, {element_literal})"
+        )
+        return cast(int, array_metadata)
+
+    def array_remove(self, array_field: list[T], element: T) -> list[T]:
+        """
+        Removes all occurrences of an element from an array.
+
+        :param array_field: The array field to remove from
+        :param element: The element to remove
+        :return: A function metadata object that resolves to an array
+
+        ```python {{sticky: True}}
+        # Remove a tag from the array
+        updated = await conn.execute(
+            update(Article)
+            .set(tags=func.array_remove(Article.tags, 'deprecated'))
+            .where(Article.id == article_id)
+        )
+
+        # Remove a skill from user's skill list
+        cleaned = await conn.execute(
+            update(User)
+            .set(skills=func.array_remove(User.skills, 'obsolete-skill'))
+            .where(User.id == user_id)
+        )
+        ```
+        """
+        array_metadata = self._column_to_metadata(array_field)
+
+        # Handle element literal
+        if isinstance(element, str):
+            element_literal = f"'{element}'"
+        elif isinstance(element, (int, float, bool)):
+            element_literal = str(element)
+        else:
+            element_metadata = self._column_to_metadata(element)
+            element_literal = str(element_metadata.literal)
+
+        array_metadata.literal = QueryLiteral(
+            f"array_remove({array_metadata.literal}, {element_literal})"
+        )
+        return cast(list[T], array_metadata)
 
     # Type Conversion Functions
     def cast(self, field: Any, type_name: Type[T]) -> T:
