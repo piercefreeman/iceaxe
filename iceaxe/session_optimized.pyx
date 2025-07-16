@@ -1,5 +1,5 @@
 from typing import Any, List, Tuple
-from iceaxe.base import TableBase
+from iceaxe.base import TableBase, PolymorphicBase
 from iceaxe.queries import FunctionMetadata
 from iceaxe.alias_values import Alias
 from json import loads as json_loads
@@ -100,6 +100,7 @@ cdef list process_values(
     cdef object select_raw
     cdef PyObject* temp_obj
     cdef bint all_none
+    cdef object model_class
 
     for i in range(num_values):
         value = values[i]
@@ -117,6 +118,18 @@ cdef list process_values(
                     num_fields = num_fields_array[j]
                     all_none = True
 
+                    # Check if this is a polymorphic model - only for full model selects
+                    is_polymorphic = hasattr(select_raw, "get_discriminator_field") and select_raw.get_discriminator_field() is not None
+                    discriminator_value = None
+                    discriminator_field = None if not is_polymorphic else select_raw.get_discriminator_field()
+                    
+                    print(f"Processing row for table {select_raw.get_table_name()}")
+                    print(f"Model class: {select_raw.__name__}")
+                    if is_polymorphic:
+                        print(f"  Polymorphic model detected with discriminator field: {discriminator_field}")
+                        if hasattr(select_raw, '_PolymorphicBase__poly_registry'):
+                            print(f"  Registry keys: {list(select_raw._PolymorphicBase__poly_registry.keys())}")
+                    
                     # First pass: collect all fields and check if they're all None
                     for k in range(num_fields):
                         field_name_c = fields[j][k].name
@@ -126,6 +139,7 @@ cdef list process_values(
 
                         try:
                             field_value = value[select_name]
+                            print(f"  Field: {field_name}, Select name: {select_name}, Value: {field_value}")
                         except KeyError:
                             raise KeyError(f"Key '{select_name}' not found in value.")
 
@@ -133,6 +147,11 @@ cdef list process_values(
                             all_none = False
                             if fields[j][k].is_json:
                                 field_value = json_loads(field_value)
+                                
+                            # If field name matches discriminator field, store the value for later
+                            if is_polymorphic and field_name == discriminator_field:
+                                discriminator_value = field_value
+                                print(f"  Found discriminator value: {discriminator_value}")
 
                         obj_dict[field_name] = field_value
 
@@ -141,7 +160,33 @@ cdef list process_values(
                         result_value[j] = <PyObject*>None
                         Py_INCREF(None)
                     else:
-                        obj = select_raw(**obj_dict)
+                        # For polymorphic models, select proper concrete model class
+                        model_class = select_raw
+                        if is_polymorphic and discriminator_value is not None:
+                            print(f"  Looking for subclass for discriminator value: {discriminator_value} (type: {type(discriminator_value)})")
+                            try:
+                                # If the discriminator value is an enum, we might need special handling
+                                # to get the correct subclass
+                                if hasattr(discriminator_value, 'value'):
+                                    # Try with both the enum instance and its string value
+                                    print(f"  Discriminator is an enum with value: {discriminator_value.value}")
+                                    model_class = select_raw.get_subclass_for_discriminator(discriminator_value.value)
+                                    
+                                    # If we didn't find a match, try with the enum instance
+                                    if model_class == select_raw:
+                                        model_class = select_raw.get_subclass_for_discriminator(discriminator_value)
+                                else:
+                                    # For non-enum values, use the value directly
+                                    model_class = select_raw.get_subclass_for_discriminator(discriminator_value)
+                            except Exception as e:
+                                print(f"  Error finding subclass: {str(e)}")
+                                model_class = select_raw
+                                
+                            print(f"  Selected model class: {model_class.__name__}")
+                            
+                        print(f"  Creating instance of {model_class.__name__} with data: {obj_dict}")
+                        obj = model_class(**obj_dict)
+                        print(f"  Created instance: {type(obj).__name__}")
                         result_value[j] = <PyObject*>obj
                         Py_INCREF(obj)
 
