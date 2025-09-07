@@ -23,6 +23,7 @@ class ColumnType(StrEnum):
     DOUBLE_PRECISION = "double precision"
     SERIAL = "serial"
     BIGSERIAL = "bigserial"
+    SMALLSERIAL = "smallserial"
 
     # Monetary Type
     MONEY = "money"

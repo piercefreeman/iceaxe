@@ -76,6 +76,7 @@ class DBModelMetaclass(_model_construction.ModelMetaclass):
                     index=False,
                     check_expression=None,
                     is_json=False,
+                    explicit_type=None,
                 )
                 for field, info in cls.model_fields.items()
             }

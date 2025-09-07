@@ -253,6 +253,10 @@ class DBColumn(DBColumnBase, DBObject["DBColumn"]):
         if isinstance(self.column_type, ColumnType):
             if self.column_type == ColumnType.INTEGER and self.autoincrement:
                 explicit_data_type = ColumnType.SERIAL
+            elif self.column_type == ColumnType.BIGINT and self.autoincrement:
+                explicit_data_type = ColumnType.BIGSERIAL
+            elif self.column_type == ColumnType.SMALLINT and self.autoincrement:
+                explicit_data_type = ColumnType.SMALLSERIAL
             else:
                 explicit_data_type = self.column_type
 
