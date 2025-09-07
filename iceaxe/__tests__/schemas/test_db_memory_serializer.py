@@ -1523,3 +1523,49 @@ def test_multiple_primary_keys_warning():
         assert "multiple fields marked as primary_key=True" in warning_message
         assert "composite primary key constraint" in warning_message
         assert "Consider using only one primary key field" in warning_message
+
+
+def test_explicit_type_override(clear_all_database_objects):
+    """
+    Test that explicit_type parameter overrides automatic type inference.
+    """
+
+    class TestModel(TableBase):
+        id: int = Field(primary_key=True)
+        # This should be BIGINT instead of INTEGER due to explicit_type
+        big_number: int = Field(explicit_type=ColumnType.BIGINT)
+        # This should be TEXT instead of VARCHAR due to explicit_type
+        long_text: str = Field(explicit_type=ColumnType.TEXT)
+        # This should be JSONB instead of JSON due to explicit_type
+        data: dict = Field(is_json=True, explicit_type=ColumnType.JSONB)
+        # Normal field without explicit_type for comparison
+        normal_field: str = Field()
+
+    migrator = DatabaseMemorySerializer()
+    db_objects = list(migrator.delegate([TestModel]))
+
+    # Extract column definitions
+    columns = [obj for obj, _ in db_objects if isinstance(obj, DBColumn)]
+
+    # Find each column and verify the type
+    big_number_column = next(c for c in columns if c.column_name == "big_number")
+    assert big_number_column.column_type == ColumnType.BIGINT
+    assert not big_number_column.nullable
+
+    long_text_column = next(c for c in columns if c.column_name == "long_text")
+    assert long_text_column.column_type == ColumnType.TEXT
+    assert not long_text_column.nullable
+
+    data_column = next(c for c in columns if c.column_name == "data")
+    assert data_column.column_type == ColumnType.JSONB
+    assert not data_column.nullable
+
+    # Verify normal field still uses automatic inference
+    normal_field_column = next(c for c in columns if c.column_name == "normal_field")
+    assert normal_field_column.column_type == ColumnType.VARCHAR
+    assert not normal_field_column.nullable
+
+    # Verify the id field uses automatic inference (INTEGER)
+    id_column = next(c for c in columns if c.column_name == "id")
+    assert id_column.column_type == ColumnType.INTEGER
+    assert not id_column.nullable

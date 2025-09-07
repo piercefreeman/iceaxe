@@ -262,6 +262,7 @@ async def test_add_column_any_type(
         (ColumnType.DECIMAL, ColumnType.NUMERIC),
         (ColumnType.SERIAL, ColumnType.INTEGER),
         (ColumnType.BIGSERIAL, ColumnType.BIGINT),
+        (ColumnType.SMALLSERIAL, ColumnType.SMALLINT),
         (ColumnType.CHAR, "character"),
         (ColumnType.TIME_WITHOUT_TIME_ZONE, "time without time zone"),
         (ColumnType.TIMESTAMP_WITHOUT_TIME_ZONE, "timestamp without time zone"),

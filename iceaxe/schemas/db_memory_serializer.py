@@ -415,6 +415,12 @@ class DatabaseHandler:
         if info.annotation is None:
             raise ValueError(f"Annotation must be provided for {table.__name__}.{key}")
 
+        # If explicit_type is provided, use it directly as the preferred type
+        if info.explicit_type is not None:
+            return TypeDeclarationResponse(
+                primitive_type=info.explicit_type,
+            )
+
         annotation = remove_null_type(info.annotation)
 
         # Resolve the type of the column, if generic
