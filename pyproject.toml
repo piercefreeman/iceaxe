@@ -8,7 +8,7 @@ requires-python = ">=3.11"
 dependencies = [
     "asyncpg>=0.30,<1",
     "pydantic>=2,<3",
-    "rich>=13,<14",
+    "rich>=13",
 ]
 
 [dependency-groups]
