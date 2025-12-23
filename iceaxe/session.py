@@ -1,5 +1,7 @@
+import re
 from collections import defaultdict
 from contextlib import asynccontextmanager
+from inspect import isclass
 from json import loads as json_loads
 from math import ceil
 from typing import (
@@ -16,7 +18,7 @@ from typing import (
 import asyncpg
 from typing_extensions import TypeVarTuple
 
-from iceaxe.base import DBFieldClassDefinition, TableBase
+from iceaxe.base import DBFieldClassDefinition, DBModelMetaclass, TableBase
 from iceaxe.logging import LOGGER
 from iceaxe.modifications import ModificationTracker
 from iceaxe.queries import (
@@ -38,6 +40,36 @@ TableType = TypeVar("TableType", bound=TableBase)
 PG_MAX_PARAMETERS = 32767
 
 TYPE_CACHE = {}
+
+
+def _migration_has_changes(migration_code: str) -> bool:
+    """
+    Check if a generated migration has actual changes.
+
+    A migration with no changes will have only 'pass' as the statement in up().
+
+    :param migration_code: The generated migration code as a string
+    :return: True if the migration has actual changes, False otherwise
+
+    """
+    # Match the up method body - everything between 'async def up(...)' and 'async def down'
+    match = re.search(
+        r"async def up\([^)]*\):\s*\n(.*?)(?=\n\s*async def down|\Z)",
+        migration_code,
+        re.DOTALL,
+    )
+    if match:
+        body = match.group(1).strip()
+        # Filter out empty lines and comments
+        lines = [
+            line.strip()
+            for line in body.split("\n")
+            if line.strip() and not line.strip().startswith("#")
+        ]
+        # If body is empty or just "pass", no changes needed
+        return not (len(lines) == 0 or (len(lines) == 1 and lines[0] == "pass"))
+    # Assume changes if we can't parse
+    return True
 
 
 class DBConnection:
@@ -778,6 +810,112 @@ class DBConnection:
         """
         await self.conn.close()
         self.modification_tracker.log()
+
+    async def magic_migrate(
+        self,
+        package: str,
+        *,
+        models: list[Type[TableBase]] | None = None,
+        message: str | None = None,
+    ) -> None:
+        """
+        Automatically generate and apply migrations to sync the database schema
+        with the current models.
+
+        This method combines migration generation and application into a single call.
+        It will:
+        1. Generate a new migration file if schema changes are detected
+        2. Apply all pending migrations (including any just generated)
+        3. Track the active revision in the migration_info table
+
+        ```python {{sticky: True}}
+        # Sync all registered models
+        await conn.magic_migrate("my_project")
+
+        # Sync specific models only
+        await conn.magic_migrate("my_project", models=[User, Post])
+
+        # Include a message in the generated migration
+        await conn.magic_migrate("my_project", message="Add user preferences table")
+        ```
+
+        :param package: The Python package name containing the migrations folder.
+            This should match the name of the project specified in pyproject.toml.
+        :param models: List of TableBase models to sync. If None, uses all models
+            registered via the DBModelMetaclass registry.
+        :param message: Optional message to include in the generated migration file.
+            Helps with describing changes and searching for past migration logic.
+
+        """
+        from iceaxe.io import resolve_package_path
+        from iceaxe.migrations.client_io import fetch_migrations, sort_migrations
+        from iceaxe.migrations.generator import MigrationGenerator
+        from iceaxe.migrations.migrator import Migrator
+        from iceaxe.schemas.db_serializer import DatabaseSerializer
+
+        # 1. Resolve models
+        if models is None:
+            models = [
+                cls
+                for cls in DBModelMetaclass.get_registry()
+                if isclass(cls) and issubclass(cls, TableBase)
+            ]
+
+        # 2. Setup migrations path
+        package_path = resolve_package_path(package)
+        migrations_path = package_path / "migrations"
+        migrations_path.mkdir(exist_ok=True)
+        if not (migrations_path / "__init__.py").exists():
+            (migrations_path / "__init__.py").touch()
+
+        # 3. Initialize migrator
+        migrator = Migrator(self)
+        await migrator.init_db()
+        current_revision = await migrator.get_active_revision()
+
+        # 4. Check for existing pending migrations
+        migration_revisions = fetch_migrations(migrations_path)
+        has_pending = any(
+            m.down_revision == current_revision for m in migration_revisions
+        )
+
+        # 5. Generate new migration if no pending ones exist
+        if not has_pending:
+            db_serializer = DatabaseSerializer()
+            db_objects = []
+            async for values in db_serializer.get_objects(self):
+                db_objects.append(values)
+
+            migration_generator = MigrationGenerator()
+            up_objects = list(migration_generator.serializer.delegate(models))
+
+            migration_code, revision = await migration_generator.new_migration(
+                db_objects,
+                up_objects,
+                down_revision=current_revision,
+                user_message=message,
+            )
+
+            # Only write if there are actual changes (up method has more than just pass)
+            if _migration_has_changes(migration_code):
+                migration_file_path = migrations_path / f"rev_{revision}.py"
+                migration_file_path.write_text(migration_code)
+                # Reload migrations to include the new one
+                migration_revisions = fetch_migrations(migrations_path)
+
+        # 6. Apply pending migrations
+        migration_revisions = sort_migrations(migration_revisions)
+
+        # Find starting point
+        next_migration_index = None
+        for i, revision in enumerate(migration_revisions):
+            if revision.down_revision == current_revision:
+                next_migration_index = i
+                break
+
+        if next_migration_index is not None:
+            for migration in migration_revisions[next_migration_index:]:
+                await migration._handle_up(self)
 
     def _aggregate_models_by_table(self, objects: Sequence[TableBase]):
         """
