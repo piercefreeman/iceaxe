@@ -7,6 +7,7 @@ authors = [{ name = "Pierce Freeman", email = "pierce@freeman.vc" }]
 requires-python = ">=3.11"
 dependencies = [
     "asyncpg>=0.30,<1",
+    "click>=8",
     "pydantic>=2,<3",
     "rich>=13",
 ]
