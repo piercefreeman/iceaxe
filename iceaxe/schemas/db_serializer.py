@@ -140,12 +140,13 @@ class DatabaseSerializer:
 
     async def get_constraints(self, session: DBConnection, table_name: str):
         query = """
-            SELECT 
-                conname, 
-                contype, 
-                conrelid, 
-                confrelid, 
-                conkey, 
+            SELECT
+                pg_constraint.oid,
+                conname,
+                contype,
+                conrelid,
+                confrelid,
+                conkey,
                 confkey,
                 confupdtype,
                 confdeltype

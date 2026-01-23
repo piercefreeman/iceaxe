@@ -396,3 +396,40 @@ async def test_db_serializer_foreign_key_actions(
     assert fk_constraint.foreign_key_constraint.target_columns == frozenset({"id"})
     assert fk_constraint.foreign_key_constraint.on_delete == "CASCADE"
     assert fk_constraint.foreign_key_constraint.on_update == "CASCADE"
+
+
+@pytest.mark.asyncio
+async def test_db_serializer_check_constraint(
+    db_connection: DBConnection,
+    clear_all_database_objects,
+):
+    """
+    Test that CHECK constraints are correctly deserialized from the database.
+    This tests the fix for the KeyError: 'oid' bug where pg_constraint.oid
+    was not selected in the query.
+    """
+    await db_connection.conn.execute(
+        """
+        CREATE TABLE exampledbmodel (
+            id SERIAL PRIMARY KEY,
+            age INTEGER NOT NULL,
+            CONSTRAINT age_positive CHECK (age > 0)
+        );
+        """
+    )
+
+    db_serializer = DatabaseSerializer()
+    db_objects = []
+    async for values in db_serializer.get_objects(db_connection):
+        db_objects.append(values)
+
+    # Find the check constraint
+    check_constraint_obj = next(
+        obj
+        for obj, _ in db_objects
+        if isinstance(obj, DBConstraint) and obj.constraint_type == ConstraintType.CHECK
+    )
+    assert check_constraint_obj.check_constraint is not None
+    assert check_constraint_obj.constraint_name == "age_positive"
+    # PostgreSQL returns the check condition in a normalized format
+    assert "age > 0" in check_constraint_obj.check_constraint.check_condition
