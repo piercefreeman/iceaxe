@@ -205,11 +205,6 @@ As expected this will deliver results - and typehint - as a `list[tuple[int, Fav
 
 ## Production
 
-> [!IMPORTANT]
-> Iceaxe is in early alpha. We're using it internally and showly rolling out to our production
-applications, but we're not yet ready to recommend it for general use. The API and larger
-stability is subject to change.
-
 Note that underlying Postgres connection wrapped by `conn` will be alive for as long as your object is in memory. This uses up one
 of the allowable connections to your database. Your overall limit depends on your Postgres configuration
 or hosting provider, but most managed solutions top out around 150-300. If you need more concurrent clients
