@@ -399,6 +399,128 @@ async def test_db_serializer_foreign_key_actions(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "index_definition, index_name, expected_columns",
+    [
+        # Simple DESC
+        ("created_at DESC", "idx_desc", frozenset({"created_at"})),
+        # Simple ASC
+        ("created_at ASC", "idx_asc", frozenset({"created_at"})),
+        # NULLS FIRST
+        ("created_at NULLS FIRST", "idx_nulls_first", frozenset({"created_at"})),
+        # NULLS LAST
+        ("created_at NULLS LAST", "idx_nulls_last", frozenset({"created_at"})),
+        # DESC with NULLS FIRST
+        (
+            "created_at DESC NULLS FIRST",
+            "idx_desc_nulls_first",
+            frozenset({"created_at"}),
+        ),
+        # ASC with NULLS LAST
+        ("created_at ASC NULLS LAST", "idx_asc_nulls_last", frozenset({"created_at"})),
+        # No modifier (baseline)
+        ("created_at", "idx_no_modifier", frozenset({"created_at"})),
+    ],
+)
+async def test_db_serializer_index_with_sort_direction(
+    index_definition: str,
+    index_name: str,
+    expected_columns: frozenset[str],
+    db_connection: DBConnection,
+    clear_all_database_objects,
+):
+    """
+    Test that indexes with sort direction modifiers (DESC, ASC, NULLS FIRST, NULLS LAST)
+    are correctly deserialized from the database. The sort direction should be stripped
+    from the column name.
+    """
+    await db_connection.conn.execute(
+        f"""
+        CREATE TABLE exampledbmodel (
+            id SERIAL PRIMARY KEY,
+            created_at TIMESTAMPTZ NOT NULL
+        );
+        CREATE INDEX {index_name} ON exampledbmodel({index_definition});
+        """
+    )
+
+    db_serializer = DatabaseSerializer()
+    db_objects = []
+    async for values in db_serializer.get_objects(db_connection):
+        db_objects.append(values)
+
+    # Find the index constraint
+    index_constraint = next(
+        obj
+        for obj, deps in db_objects
+        if isinstance(obj, DBConstraint)
+        and obj.constraint_type == ConstraintType.INDEX
+        and obj.constraint_name == index_name
+    )
+
+    # The column name should be "created_at", not "created_at DESC" etc.
+    assert index_constraint.columns == expected_columns
+
+    # Also check the dependencies reference the correct column name
+    index_deps = next(
+        deps
+        for obj, deps in db_objects
+        if isinstance(obj, DBConstraint) and obj.constraint_name == index_name
+    )
+    column_pointer = next(dep for dep in index_deps if isinstance(dep, DBColumnPointer))
+    assert column_pointer.column_name == "created_at"
+
+
+@pytest.mark.asyncio
+async def test_db_serializer_index_with_multiple_columns_and_sort_directions(
+    db_connection: DBConnection,
+    clear_all_database_objects,
+):
+    """
+    Test that indexes with multiple columns having different sort directions
+    are correctly deserialized. Each column's sort direction should be stripped.
+    """
+    await db_connection.conn.execute(
+        """
+        CREATE TABLE exampledbmodel (
+            id SERIAL PRIMARY KEY,
+            created_at TIMESTAMPTZ NOT NULL,
+            updated_at TIMESTAMPTZ NOT NULL,
+            name VARCHAR NOT NULL
+        );
+        CREATE INDEX idx_multi_col ON exampledbmodel(created_at DESC, updated_at ASC, name);
+        """
+    )
+
+    db_serializer = DatabaseSerializer()
+    db_objects = []
+    async for values in db_serializer.get_objects(db_connection):
+        db_objects.append(values)
+
+    # Find the index constraint
+    index_constraint = next(
+        obj
+        for obj, deps in db_objects
+        if isinstance(obj, DBConstraint)
+        and obj.constraint_type == ConstraintType.INDEX
+        and obj.constraint_name == "idx_multi_col"
+    )
+
+    # All column names should be stripped of sort directions
+    assert index_constraint.columns == frozenset({"created_at", "updated_at", "name"})
+
+    # Check dependencies reference all correct column names
+    index_deps = next(
+        deps
+        for obj, deps in db_objects
+        if isinstance(obj, DBConstraint) and obj.constraint_name == "idx_multi_col"
+    )
+    column_pointers = [dep for dep in index_deps if isinstance(dep, DBColumnPointer)]
+    column_names = {cp.column_name for cp in column_pointers}
+    assert column_names == {"created_at", "updated_at", "name"}
+
+
+@pytest.mark.asyncio
 async def test_db_serializer_check_constraint(
     db_connection: DBConnection,
     clear_all_database_objects,
