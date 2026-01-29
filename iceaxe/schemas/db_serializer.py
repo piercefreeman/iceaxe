@@ -273,9 +273,13 @@ class DatabaseSerializer:
             columns_match = re.search(r"\((.*?)\)", index_def)
             if columns_match:
                 # Reserved names are quoted in the response body
-                columns = [
-                    col.strip().strip('"') for col in columns_match.group(1).split(",")
-                ]
+                # Also strip sort direction modifiers (DESC, ASC, NULLS FIRST, NULLS LAST)
+                columns = []
+                for col in columns_match.group(1).split(","):
+                    col = col.strip().strip('"')
+                    # Remove sort direction modifiers - take only the column name
+                    col = re.split(r"\s+", col)[0]
+                    columns.append(col)
             else:
                 columns = []
 
