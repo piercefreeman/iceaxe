@@ -29,11 +29,11 @@ class DatabaseSerializer:
 
     """
 
-    def __init__(self):
+    def __init__(self, ignore_tables: list[str] | None = None):
         # Internal tables used for migration management, shouldn't be managed in-memory and therefore
         # won't be mirrored by our DBMemorySerializer. We exclude them from this serialization lest there
         # be a detected conflict and we try to remove the migration metadata.
-        self.ignore_tables = ["migration_info"]
+        self.ignore_tables = ["migration_info"] + (ignore_tables or [])
 
     @staticmethod
     def _unwrap_db_str(value: str | bytes | bytearray | memoryview) -> str:
