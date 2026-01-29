@@ -9,7 +9,10 @@ from iceaxe.session import DBConnection
 
 
 async def handle_generate(
-    package: str, db_connection: DBConnection, message: str | None = None
+    package: str,
+    db_connection: DBConnection,
+    message: str | None = None,
+    ignore_tables: list[str] | None = None,
 ):
     """
     Creates a new migration definition file, comparing the previous version
@@ -20,6 +23,10 @@ async def handle_generate(
 
     :param message: An optional message to include in the migration file. Helps
         with describing changes and searching for past migration logic over time.
+
+    :param ignore_tables: An optional list of table names to ignore during migration
+        generation. These tables will be excluded from both the in-memory model
+        comparison and the database schema introspection.
 
     ```python {{sticky: True}}
     from iceaxe.migrations.cli import handle_generate
@@ -58,13 +65,16 @@ async def handle_generate(
 
     # Get all of the instances that have been registered
     # in memory scope by the user.
+    ignore_tables_set = set(ignore_tables or [])
     models = [
         cls
         for cls in DBModelMetaclass.get_registry()
-        if isclass(cls) and issubclass(cls, TableBase)
+        if isclass(cls)
+        and issubclass(cls, TableBase)
+        and cls.get_table_name() not in ignore_tables_set
     ]
 
-    db_serializer = DatabaseSerializer()
+    db_serializer = DatabaseSerializer(ignore_tables=ignore_tables)
     db_objects = []
     async for values in db_serializer.get_objects(db_connection):
         db_objects.append(values)
