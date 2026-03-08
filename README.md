@@ -119,7 +119,7 @@ While `magic_migrate` is convenient for rapid local iteration, we recommend a mo
 
 1. Iterate freely during development using `magic_migrate`
 2. Before merging, reset your database to the production schema state
-3. Run `magic_migrate` once to generate a single, clean migration file
+3. Run `uv run migrate generate` once to generate a single, clean migration file
 4. Commit this migration file with your PR
 
 This ensures your production migrations are clean and reviewable, while still giving you the speed of automatic migrations during development.
