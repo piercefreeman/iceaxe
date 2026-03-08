@@ -98,6 +98,32 @@ await conn.conn.execute(
 )
 ```
 
+### Magic Migrations
+
+For local development or side projects, you can use `magic_migrate` to automatically sync your database schema with your models:
+
+```python
+await conn.magic_migrate("my_project")
+```
+
+This will:
+1. Compare your current database schema against your model definitions
+2. Generate a migration file if changes are detected
+3. Apply all pending migrations
+
+The migration files are written to your package's `migrations/` folder, giving you a history of schema changes.
+
+**Recommended workflow for production:**
+
+While `magic_migrate` is convenient for rapid local iteration, we recommend a more controlled approach before merging to production:
+
+1. Iterate freely during development using `magic_migrate`
+2. Before merging, reset your database to the production schema state
+3. Run `uv run migrate generate` once to generate a single, clean migration file
+4. Commit this migration file with your PR
+
+This ensures your production migrations are clean and reviewable, while still giving you the speed of automatic migrations during development.
+
 ### Inserting Data
 
 Instantiate object classes as you normally do:
