@@ -200,9 +200,7 @@ async def test_magic_migrate_multiple_tables(
         title: str
 
     with patch("iceaxe.io.resolve_package_path", return_value=package_dir):
-        await db_connection.magic_migrate(
-            "test_pkg", models=[MagicAuthor, MagicBook]
-        )
+        await db_connection.magic_migrate("test_pkg", models=[MagicAuthor, MagicBook])
 
     # Verify both tables were created
     tables = await db_connection.conn.fetch(
