@@ -19,6 +19,7 @@ import asyncpg
 from typing_extensions import TypeVarTuple
 
 from iceaxe.base import DBFieldClassDefinition, DBModelMetaclass, TableBase
+from iceaxe.exceptions import wrap_query_error
 from iceaxe.logging import LOGGER
 from iceaxe.modifications import ModificationTracker
 from iceaxe.queries import (
@@ -311,11 +312,8 @@ class DBConnection:
         LOGGER.debug(f"Executing query: {sql_text} with variables: {variables}")
         try:
             values = await self.conn.fetch(sql_text, *variables)
-        except Exception as e:
-            LOGGER.error(
-                f"Error executing query: {sql_text} with variables: {variables}"
-            )
-            raise e
+        except asyncpg.PostgresError as e:
+            raise wrap_query_error(e, sql_text, tuple(variables)) from e
 
         if query._query_type == "SELECT":
             # Pre-cache the select types for better performance

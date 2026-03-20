@@ -16,6 +16,7 @@ from iceaxe.__tests__.conf_models import (
     UserDemo,
 )
 from iceaxe.base import INTERNAL_TABLE_FIELDS, TableBase
+from iceaxe.exceptions import IceaxeQueryError
 from iceaxe.field import Field
 from iceaxe.functions import func
 from iceaxe.queries import QueryBuilder
@@ -1509,3 +1510,31 @@ async def test_nested_transactions(db_connection):
     # Now a new transaction should start without error
     async with db_connection.transaction():
         assert db_connection.in_transaction is True
+
+
+@pytest.mark.asyncio
+async def test_query_error_includes_context(db_connection: DBConnection):
+    """Invalid query raises IceaxeQueryError with SQL and variables in the message."""
+    query = QueryBuilder().select(UserDemo).where(column(UserDemo.name) == "test")
+    # Sabotage the built SQL to reference a nonexistent column
+    original_build = query.build
+
+    def patched_build():
+        sql, vars = original_build()
+        return sql.replace('"name"', '"nonexistent_col"'), vars
+
+    query.build = patched_build  # type: ignore[method-assign]
+
+    with pytest.raises(IceaxeQueryError, match="nonexistent_col") as exc_info:
+        await db_connection.exec(query)
+
+    err = exc_info.value
+    # Should contain query context in the message
+    assert "userdemo.nonexistent_col" in str(err)
+    assert err.sql_text is not None
+    assert err.variables is not None
+    # Should still be catchable as the specific asyncpg type
+    assert isinstance(err, asyncpg.UndefinedColumnError)
+    assert isinstance(err, asyncpg.PostgresError)
+    # Original exception is preserved
+    assert isinstance(err.original, asyncpg.UndefinedColumnError)
