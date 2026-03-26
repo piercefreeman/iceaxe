@@ -745,7 +745,9 @@ class DBConnection:
                         setattr(
                             obj,
                             field,
-                            model.model_fields[field].from_db_value(results[obj_id][field]),
+                            model.model_fields[field].from_db_value(
+                                results[obj_id][field]
+                            ),
                         )
                 else:
                     LOGGER.error(
