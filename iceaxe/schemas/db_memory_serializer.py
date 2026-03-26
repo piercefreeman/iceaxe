@@ -5,6 +5,7 @@ from inspect import isgenerator
 from typing import Any, Generator, Sequence, Type, TypeVar, Union
 from uuid import UUID
 
+from pydantic import BaseModel
 from pydantic_core import PydanticUndefined
 
 from iceaxe.base import (
@@ -489,6 +490,16 @@ class DatabaseHandler:
                 )
             else:
                 raise ValueError(f"Unsupported date type: {annotation}")
+        elif is_type_compatible(annotation, BaseModel):
+            if info.is_json:
+                return TypeDeclarationResponse(
+                    primitive_type=ColumnType.JSON,
+                )
+            else:
+                raise ValueError(
+                    f"Pydantic model fields must have Field(is_json=True) specified: {annotation}\n"
+                    f"Column: {table.__name__}.{key}"
+                )
         elif is_type_compatible(annotation, JSON_WRAPPER_FALLBACK):
             if info.is_json:
                 return TypeDeclarationResponse(

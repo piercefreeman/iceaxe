@@ -59,6 +59,7 @@ async def db_connection(docker_postgres):
         "demomodela",
         "demomodelb",
         "jsondemo",
+        "pydanticjsondemo",
         "complextypedemo",
     ]
     known_types = ["statusenum", "employeestatus"]

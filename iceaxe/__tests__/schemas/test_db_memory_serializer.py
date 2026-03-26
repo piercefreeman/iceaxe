@@ -6,7 +6,7 @@ from unittest.mock import ANY
 from uuid import UUID
 
 import pytest
-from pydantic import create_model
+from pydantic import BaseModel, create_model
 from pydantic.fields import FieldInfo
 
 from iceaxe import Field, TableBase
@@ -1569,3 +1569,22 @@ def test_explicit_type_override(clear_all_database_objects):
     id_column = next(c for c in columns if c.column_name == "id")
     assert id_column.column_type == ColumnType.INTEGER
     assert not id_column.nullable
+
+
+def test_pydantic_model_json_field(clear_all_database_objects):
+    class SettingsModel(BaseModel):
+        theme: str
+        notifications: bool
+
+    class TestModel(TableBase):
+        id: int = Field(primary_key=True)
+        settings: SettingsModel = Field(is_json=True)
+
+    migrator = DatabaseMemorySerializer()
+    db_objects = list(migrator.delegate([TestModel]))
+
+    columns = [obj for obj, _ in db_objects if isinstance(obj, DBColumn)]
+    settings_column = next(c for c in columns if c.column_name == "settings")
+
+    assert settings_column.column_type == ColumnType.JSON
+    assert not settings_column.nullable

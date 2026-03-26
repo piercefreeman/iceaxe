@@ -2,7 +2,6 @@ from typing import Any, List, Tuple
 from iceaxe.base import TableBase
 from iceaxe.queries import FunctionMetadata
 from iceaxe.alias_values import Alias
-from json import loads as json_loads
 from cpython.ref cimport PyObject
 from cpython.object cimport PyObject_GetItem
 from libc.stdlib cimport malloc, free
@@ -132,7 +131,7 @@ cdef list process_values(
                         if field_value is not None:
                             all_none = False
                             if fields[j][k].is_json:
-                                field_value = json_loads(field_value)
+                                field_value = select_raw.model_fields[field_name].from_db_value(field_value)
 
                         obj_dict[field_name] = field_value
 
@@ -153,6 +152,8 @@ cdef list process_values(
                         item = value[f"{table_name}_{column_name}"]
                     except KeyError:
                         raise KeyError(f"Key '{table_name}_{column_name}' not found in value.")
+                    if item is not None and select_raw.field_definition.is_json:
+                        item = select_raw.field_definition.from_db_value(item)
                     result_value[j] = <PyObject*>item
                     Py_INCREF(item)
 
