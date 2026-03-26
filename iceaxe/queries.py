@@ -5,6 +5,8 @@ from dataclasses import dataclass, field as dataclass_field
 from functools import wraps
 from typing import Any, Generic, Literal, Type, TypeVar, TypeVarTuple, cast, overload
 
+from pydantic import BaseModel
+
 from iceaxe.alias_values import Alias
 from iceaxe.base import (
     DBFieldClassDefinition,
@@ -46,6 +48,7 @@ SUPPORTED_SELECTS = (
     | PRIMITIVE_WRAPPER_TYPES
     | DATE_TYPES
     | JSON_WRAPPER_FALLBACK
+    | BaseModel
     | None
 )
 

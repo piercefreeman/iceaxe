@@ -2,7 +2,6 @@ import re
 from collections import defaultdict
 from contextlib import asynccontextmanager
 from inspect import isclass
-from json import loads as json_loads
 from math import ceil
 from typing import (
     Any,
@@ -558,13 +557,9 @@ class DBConnection:
                                 processed_values = []
                                 for field in returning_fields_cols:
                                     value = row[field.key]
-                                    if (
-                                        value is not None
-                                        and field.root_model.model_fields[
-                                            field.key
-                                        ].is_json
-                                    ):
-                                        value = json_loads(value)
+                                    value = field.root_model.model_fields[
+                                        field.key
+                                    ].from_db_value(value)
                                     processed_values.append(value)
                                 results.append(tuple(processed_values))
                     else:
@@ -747,7 +742,13 @@ class DBConnection:
                 if obj_id in results:
                     # Update field-by-field
                     for field in fields:
-                        setattr(obj, field, results[obj_id][field])
+                        setattr(
+                            obj,
+                            field,
+                            model.model_fields[field].from_db_value(
+                                results[obj_id][field]
+                            ),
+                        )
                 else:
                     LOGGER.error(
                         f"Object {obj} with primary key {obj_id} not found in database"

@@ -1,4 +1,4 @@
-from json import dumps as json_dumps
+from json import dumps as json_dumps, loads as json_loads
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -12,7 +12,7 @@ from typing import (
     cast,
 )
 
-from pydantic import Field as PydanticField
+from pydantic import Field as PydanticField, TypeAdapter
 from pydantic.fields import FieldInfo, _FieldInfoInputs
 from pydantic_core import PydanticUndefined
 
@@ -105,6 +105,8 @@ class DBFieldInfo(FieldInfo):
     When set, this type takes precedence over automatic type inference.
     """
 
+    _json_type_adapter: TypeAdapter[Any] | None = None
+
     def __init__(self, **kwargs: Unpack[DBFieldInputs]):
         """
         Initialize a new DBFieldInfo instance with the given field configuration.
@@ -162,6 +164,19 @@ class DBFieldInfo(FieldInfo):
         if self.is_json:
             return json_dumps(value)
         return value
+
+    def from_db_value(self, value: Any):
+        if not self.is_json or value is None:
+            return value
+
+        parsed_value = json_loads(value) if isinstance(value, str) else value
+        if self.annotation is None:
+            return parsed_value
+
+        if self._json_type_adapter is None:
+            self._json_type_adapter = TypeAdapter(self.annotation)
+
+        return self._json_type_adapter.validate_python(parsed_value)
 
 
 def __get_db_field(_: Callable[Concatenate[Any, P], Any] = PydanticField):  # type: ignore

@@ -1,11 +1,13 @@
 from contextlib import asynccontextmanager
 from enum import StrEnum
+from json import dumps as json_dumps, loads as json_loads
 from typing import Any, Type
 from unittest.mock import AsyncMock, patch
 
 import asyncpg
 import pytest
 from asyncpg.connection import Connection
+from pydantic import BaseModel
 
 from iceaxe.__tests__.conf_models import (
     ArtifactDemo,
@@ -542,6 +544,122 @@ async def test_refresh(db_connection: DBConnection):
     # new attributes
     await db_connection.refresh([user])
     assert user.name == "Jane Doe"
+
+
+@pytest.mark.asyncio
+async def test_pydantic_json_round_trip(db_connection: DBConnection):
+    class Preferences(BaseModel):
+        theme: str
+        notifications: bool
+
+    class PydanticJsonDemo(TableBase):
+        id: int | None = Field(primary_key=True, default=None)
+        payload: Preferences = Field(is_json=True)
+
+    await db_connection.conn.execute("DROP TABLE IF EXISTS pydanticjsondemo")
+    await create_all(db_connection, [PydanticJsonDemo])
+
+    demo = PydanticJsonDemo(
+        payload=Preferences(theme="dark", notifications=True),
+    )
+    await db_connection.insert([demo])
+
+    full_result = await db_connection.exec(
+        QueryBuilder().select(PydanticJsonDemo).where(PydanticJsonDemo.id == demo.id)
+    )
+    assert len(full_result) == 1
+    assert full_result[0].payload == Preferences(theme="dark", notifications=True)
+
+    column_result = await db_connection.exec(
+        QueryBuilder()
+        .select(PydanticJsonDemo.payload)
+        .where(PydanticJsonDemo.id == demo.id)
+    )
+    assert column_result == [Preferences(theme="dark", notifications=True)]
+
+    demo.payload = Preferences(theme="light", notifications=False)
+    await db_connection.update([demo])
+
+    updated_result = await db_connection.exec(
+        QueryBuilder().select(PydanticJsonDemo).where(PydanticJsonDemo.id == demo.id)
+    )
+    assert updated_result == [
+        PydanticJsonDemo(
+            id=demo.id,
+            payload=Preferences(theme="light", notifications=False),
+        )
+    ]
+
+    await db_connection.conn.execute(
+        "UPDATE pydanticjsondemo SET payload = $1::json WHERE id = $2",
+        json_dumps({"theme": "system", "notifications": True}),
+        demo.id,
+    )
+    await db_connection.refresh([demo])
+    assert demo.payload == Preferences(theme="system", notifications=True)
+
+
+@pytest.mark.asyncio
+async def test_pydantic_json_serialization_to_database(db_connection: DBConnection):
+    class Preferences(BaseModel):
+        theme: str
+        notifications: bool
+
+    class PydanticJsonDemo(TableBase):
+        id: int | None = Field(primary_key=True, default=None)
+        payload: Preferences = Field(is_json=True)
+
+    await db_connection.conn.execute("DROP TABLE IF EXISTS pydanticjsondemo")
+    await create_all(db_connection, [PydanticJsonDemo])
+
+    demo = PydanticJsonDemo(
+        payload=Preferences(theme="dark", notifications=True),
+    )
+    await db_connection.insert([demo])
+
+    raw_row = await db_connection.conn.fetchrow(
+        "SELECT payload::text AS payload FROM pydanticjsondemo WHERE id = $1",
+        demo.id,
+    )
+    assert raw_row is not None
+    assert json_loads(raw_row["payload"]) == {
+        "theme": "dark",
+        "notifications": True,
+    }
+
+
+@pytest.mark.asyncio
+async def test_pydantic_json_deserialization_from_database(
+    db_connection: DBConnection,
+):
+    class Preferences(BaseModel):
+        theme: str
+        notifications: bool
+
+    class PydanticJsonDemo(TableBase):
+        id: int | None = Field(primary_key=True, default=None)
+        payload: Preferences = Field(is_json=True)
+
+    await db_connection.conn.execute("DROP TABLE IF EXISTS pydanticjsondemo")
+    await create_all(db_connection, [PydanticJsonDemo])
+
+    inserted_row = await db_connection.conn.fetchrow(
+        "INSERT INTO pydanticjsondemo (payload) VALUES ($1::json) RETURNING id",
+        json_dumps({"theme": "system", "notifications": False}),
+    )
+    assert inserted_row is not None
+
+    result = await db_connection.exec(
+        QueryBuilder()
+        .select(PydanticJsonDemo)
+        .where(PydanticJsonDemo.id == inserted_row["id"])
+    )
+    assert result == [
+        PydanticJsonDemo(
+            id=inserted_row["id"],
+            payload=Preferences(theme="system", notifications=False),
+        )
+    ]
 
 
 @pytest.mark.asyncio
