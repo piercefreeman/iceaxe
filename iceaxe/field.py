@@ -148,9 +148,9 @@ class DBFieldInfo(FieldInfo):
         Helper function to extend a Pydantic FieldInfo with database-specific attributes.
 
         """
-        field_attributes = dict(field._attributes_set)  # type: ignore
+        field_attributes = cast(dict[str, Any], dict(field._attributes_set))
         autoincrement = field_attributes.pop("autoincrement", _Unset)
-        db_kwargs: dict[str, Any] = {
+        db_kwargs: DBFieldInputs = {
             "primary_key": field_attributes.pop("primary_key", primary_key),
             "postgres_config": field_attributes.pop("postgres_config", postgres_config),
             "foreign_key": field_attributes.pop("foreign_key", foreign_key),
@@ -165,10 +165,8 @@ class DBFieldInfo(FieldInfo):
         if autoincrement is not _Unset:
             db_kwargs["autoincrement"] = autoincrement
 
-        return cls(
-            **db_kwargs,
-            **field_attributes,
-        )
+        kwargs = cast(DBFieldInputs, {**field_attributes, **db_kwargs})
+        return cls(**kwargs)
 
     def to_db_value(self, value: Any):
         if self.is_json:

@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, cast
 
 from pydantic.fields import FieldInfo
 
@@ -19,8 +19,9 @@ def test_extend_field_accepts_db_kwargs_already_in_attributes_set():
     # Simulate Pydantic normalizing an Iceaxe field back to FieldInfo while
     # preserving Iceaxe-specific entries in _attributes_set.
     field = FieldInfo(default=None)
-    field.annotation = dict[str, Any] | None
-    field._attributes_set = {
+    raw_field = cast(Any, field)
+    raw_field.annotation = dict[str, Any] | None
+    raw_field._attributes_set = {
         "primary_key": False,
         "postgres_config": None,
         "foreign_key": None,

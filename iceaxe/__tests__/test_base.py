@@ -7,6 +7,14 @@ from iceaxe.base import (
 from iceaxe.field import DBFieldInfo, Field
 
 
+class _AnnotatedDummy:
+    def __get_pydantic_core_schema__(self, source_type, handler):
+        return handler(source_type)
+
+
+AnnotatedPayload = Annotated[dict[str, Any] | None, _AnnotatedDummy()]
+
+
 def test_autodetect():
     class WillAutodetect(TableBase):
         pass
@@ -53,14 +61,8 @@ def test_model_fields():
 
 
 def test_model_fields_with_annotated_metadata():
-    class Dummy:
-        def __get_pydantic_core_schema__(self, source_type, handler):
-            return handler(source_type)
-
-    Payload = Annotated[dict[str, Any] | None, Dummy()]
-
     class Event(TableBase, autodetect=False):
-        metadata: Payload = Field(default=None, is_json=True)
+        metadata: AnnotatedPayload = Field(default=None, is_json=True)
 
     field = Event.model_fields["metadata"]
     assert isinstance(field, DBFieldInfo)
