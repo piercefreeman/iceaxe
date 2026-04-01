@@ -41,6 +41,62 @@ jobs:
         env:
           ICEAXE_LOG_LEVEL: DEBUG
 
+  pydantic-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.generate.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv with Python 3.12
+        uses: astral-sh/setup-uv@v6.3.0
+        with:
+          enable-cache: false
+          python-version: 3.12
+      - name: Generate Pydantic compatibility matrix
+        id: generate
+        run: |
+          {
+            echo 'matrix<<EOF'
+            uv run scripts/pydantic_version_matrix.py \
+              --fixed 2.10.6 2.11.0 2.12.5
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+  pydantic-compat:
+    needs: [pydantic-matrix]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.pydantic-matrix.outputs.matrix) }}
+    services:
+      postgres:
+        image: postgres:latest
+        env:
+          POSTGRES_USER: iceaxe
+          POSTGRES_PASSWORD: mysecretpassword
+          POSTGRES_DB: iceaxe_test_db
+        ports:
+          - 5438:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv with Python 3.12
+        uses: astral-sh/setup-uv@v6.3.0
+        with:
+          enable-cache: false
+          python-version: 3.12
+      - name: Run compatibility tests on Pydantic ${{ matrix.label }}
+        run: >
+          uv run
+          --with ${{ matrix.package }}${{ matrix.specifier }}
+          pytest -v --continue-on-collection-errors
+        env:
+          ICEAXE_LOG_LEVEL: DEBUG
+
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -54,7 +110,7 @@ jobs:
         run: make lint
 
   full-build:
-    needs: [test, lint]
+    needs: [test, pydantic-compat, lint]
     if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'Full Build') || startsWith(github.ref, 'refs/tags/v')
     strategy:
       matrix:

@@ -155,6 +155,10 @@ class DBModelMetaclass(_model_construction.ModelMetaclass):
         """
         return getattr(self, "__pydantic_fields__", {})  # type: ignore
 
+    @model_fields.setter
+    def model_fields(self, value: dict[str, Any]):
+        self.__pydantic_fields__ = value  # type: ignore
+
 
 class UniqueConstraint(BaseModel):
     """
@@ -265,6 +269,10 @@ class TableBase(BaseModel, metaclass=DBModelMetaclass):
     """
     List of callbacks to be called when the model is modified.
     """
+
+    @property
+    def model_fields(self) -> dict[str, DBFieldInfo]:  # type: ignore
+        return self.__class__.model_fields
 
     def __setattr__(self, name: str, value: Any) -> None:
         """

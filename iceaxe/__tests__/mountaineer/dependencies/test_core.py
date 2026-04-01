@@ -3,8 +3,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import asyncpg
 import pytest
 
-from iceaxe.mountaineer.config import DatabaseConfig
-from iceaxe.mountaineer.dependencies.core import get_db_connection
+try:
+    from iceaxe.mountaineer.config import DatabaseConfig
+    from iceaxe.mountaineer.dependencies.core import get_db_connection
+except ImportError as exc:
+    pytest.skip(
+        f"Mountaineer integration is unavailable for this dependency set: {exc}",
+        allow_module_level=True,
+    )
+
 from iceaxe.session import DBConnection
 
 
