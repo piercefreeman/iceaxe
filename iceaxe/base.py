@@ -155,6 +155,10 @@ class DBModelMetaclass(_model_construction.ModelMetaclass):
         """
         return getattr(self, "__pydantic_fields__", {})  # type: ignore
 
+    @model_fields.setter
+    def model_fields(self, value: dict[str, Any]):
+        self.__pydantic_fields__ = value  # type: ignore
+
 
 class UniqueConstraint(BaseModel):
     """

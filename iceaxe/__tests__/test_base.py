@@ -60,6 +60,16 @@ def test_model_fields():
     assert isinstance(User.model_fields["modified_attrs_callbacks"], DBFieldInfo)
 
 
+def test_model_fields_assignment_is_supported():
+    class User(TableBase, autodetect=False):
+        id: int
+
+    fields = User.model_fields
+    User.model_fields = fields
+
+    assert User.model_fields is fields
+
+
 def test_model_fields_with_annotated_metadata():
     class Event(TableBase, autodetect=False):
         metadata: AnnotatedPayload = Field(default=None, is_json=True)
