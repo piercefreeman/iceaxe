@@ -1,4 +1,4 @@
-from typing import Annotated, Any, Generic, TypeVar
+from typing import Annotated, Any, Generic, TypeVar, cast
 
 from iceaxe.base import (
     DBModelMetaclass,
@@ -64,10 +64,23 @@ def test_model_fields_assignment_is_supported():
     class User(TableBase, autodetect=False):
         id: int
 
-    fields = User.model_fields
-    User.model_fields = fields
+    user_cls = cast(Any, User)
+    fields = user_cls.model_fields
+    user_cls.model_fields = fields
 
-    assert User.model_fields is fields
+    assert user_cls.model_fields is fields
+
+
+def test_instance_model_fields_access_is_supported():
+    class User(TableBase, autodetect=False):
+        id: int
+
+    user = User(id=1)
+    user.id = 2
+
+    assert user.id == 2
+    assert user.model_fields["id"] is User.model_fields["id"]
+    assert user.modified_attrs["id"] == 2
 
 
 def test_model_fields_with_annotated_metadata():
