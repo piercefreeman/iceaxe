@@ -1,10 +1,10 @@
-from typing import Generic, TypeVar
+from typing import Annotated, Any, Generic, TypeVar
 
 from iceaxe.base import (
     DBModelMetaclass,
     TableBase,
 )
-from iceaxe.field import DBFieldInfo
+from iceaxe.field import DBFieldInfo, Field
 
 
 def test_autodetect():
@@ -50,3 +50,20 @@ def test_model_fields():
     # Check that the special fields exist with the right types
     assert isinstance(User.model_fields["modified_attrs"], DBFieldInfo)
     assert isinstance(User.model_fields["modified_attrs_callbacks"], DBFieldInfo)
+
+
+def test_model_fields_with_annotated_metadata():
+    class Dummy:
+        def __get_pydantic_core_schema__(self, source_type, handler):
+            return handler(source_type)
+
+    Payload = Annotated[dict[str, Any] | None, Dummy()]
+
+    class Event(TableBase, autodetect=False):
+        metadata: Payload = Field(default=None, is_json=True)
+
+    field = Event.model_fields["metadata"]
+    assert isinstance(field, DBFieldInfo)
+    assert field.annotation == dict[str, Any] | None
+    assert field.default is None
+    assert field.is_json is True
