@@ -84,10 +84,25 @@ class SimpleSubclassAnnotation:
         )
 
     def _cast_value(self, value: Any):
-        return coerce_simple_subclass_value(value, self.subtype)
+        return coerce_single_subclass_value(value, self.subtype)
 
 
 def wrap_simple_subclass_annotation(annotation: Any) -> Any:
+    """
+    Wrap one annotation node with `SimpleSubclassAnnotation` when it represents
+    a supported simple subclass.
+
+    This function is intentionally small in scope: it does not walk nested type
+    structures itself. Instead it is designed to be passed into
+    `transform_typehint`, which recursively traverses unions, `Annotated`, and
+    other generic wrappers and invokes this function on each node. At each node
+    we decide whether the current type needs Pydantic metadata so it can be
+    validated as its base storage type and then reconstructed as the subclass.
+
+    If the node is already wrapped, or if it is not one of the supported
+    subclass shapes, the annotation is returned unchanged.
+
+    """
     if get_origin(annotation) is Annotated:
         inner, *metadata = get_args(annotation)
         if any(isinstance(item, SimpleSubclassAnnotation) for item in metadata):
@@ -111,6 +126,19 @@ def wrap_simple_subclass_annotation(annotation: Any) -> Any:
 
 
 def get_simple_subclass_base_type(annotation: Any) -> type[Any] | None:
+    """
+    Resolve the storage/base type for a supported simple subclass annotation.
+
+    For a value type like `CustomUUID(UUID)`, the runtime annotation is the
+    subclass but the storage behavior should follow `UUID`. This helper maps the
+    subclass back to that base type so callers can reason about database storage
+    and coercion without losing track of the original runtime type.
+
+    The return value is intentionally `None` for non-subclasses and for base
+    types themselves. That lets callers distinguish "this annotation should be
+    treated specially" from "this is already a normal built-in/base type".
+
+    """
     annotation = unwrap_annotated(annotation)
     kind = get_simple_subclass_kind(annotation)
     if kind is None:
@@ -124,6 +152,20 @@ def get_simple_subclass_base_type(annotation: Any) -> type[Any] | None:
 
 
 def get_simple_subclass_kind(annotation: Any) -> SimpleSubclassKind | None:
+    """
+    Classify an annotation into one of the supported simple-subclass families.
+
+    The subclass feature only supports a bounded set of base runtime/storage
+    types, captured in `SIMPLE_SUBCLASS_BASE_TYPES_BY_KIND`. Rather than
+    repeatedly branching on `issubclass(..., UUID)` / `issubclass(..., date)` in
+    multiple places, we first collapse a candidate type into one stable literal
+    kind. Downstream code can then switch on that kind and get both clearer
+    control flow and exhaustiveness checking from static analysis.
+
+    The function returns `None` for values that are not classes, enums, or do
+    not inherit from one of the supported base types.
+
+    """
     annotation = unwrap_annotated(annotation)
     if not isclass(annotation):
         return None
@@ -153,12 +195,12 @@ def convert_simple_subclass_value(value: Any, annotation: Any, *, to_db: bool) -
 
     target_type = storage_type if to_db else resolved.runtime_type
     if resolved.is_list:
-        return [coerce_simple_subclass_value(item, target_type) for item in value]
+        return [coerce_single_subclass_value(item, target_type) for item in value]
 
-    return coerce_simple_subclass_value(value, target_type)
+    return coerce_single_subclass_value(value, target_type)
 
 
-def coerce_simple_subclass_value(value: Any, target_type: type[Any]) -> Any:
+def coerce_single_subclass_value(value: Any, target_type: type[Any]) -> Any:
     if type(value) is target_type:
         return value
 

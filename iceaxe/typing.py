@@ -144,6 +144,33 @@ def transform_typehint(
     annotation: Any,
     transform: Callable[[Any], Any],
 ) -> Any:
+    """
+    Recursively rebuild an annotation tree while applying a callback to each node.
+
+    Python type hints are often nested combinations of wrappers such as
+    `Annotated[...]`, unions, and container generics. Callers sometimes need to
+    inject or rewrite metadata inside that structure without losing the overall
+    typing shape. This helper performs that traversal once and hands each rebuilt
+    node to `transform`, allowing feature-specific code to focus on "what should
+    this node become?" rather than repeatedly reimplementing `get_origin()` /
+    `get_args()` recursion.
+
+    Some examples of the supported traversal behavior:
+    - `CustomUUID | None` visits `CustomUUID`, applies the transform there, and
+      then rebuilds the nullable union around the transformed result.
+    - `list[CustomUUID]` visits `CustomUUID`, applies the transform there, and
+      then rebuilds the outer list as `list[<transformed CustomUUID>]`.
+    - `dict[str, CustomUUID]` preserves the `dict[str, ...]` shape while still
+      transforming the nested value type.
+    - `Annotated[list[CustomUUID], Meta()]` first transforms the inner
+      `list[CustomUUID]`, then rebuilds the `Annotated[...]` wrapper with the
+      original metadata still attached.
+
+    In all of these cases, child nodes are transformed before their parent
+    wrapper is rebuilt. That lets callers inspect the already-normalized inner
+    annotation when they receive a parent node such as `Annotated[...]`.
+
+    """
     origin = get_origin(annotation)
 
     if origin is Annotated:
