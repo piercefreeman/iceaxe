@@ -736,6 +736,74 @@ def test_enum_column_assignment(clear_all_database_objects):
     ]
 
 
+def test_simple_uuid_subclass_column_assignment(clear_all_database_objects):
+    class CustomUUID(UUID):
+        pass
+
+    class ExampleModel(TableBase):
+        id: CustomUUID = Field(primary_key=True)
+        values: list[CustomUUID]
+
+    migrator = DatabaseMemorySerializer()
+    db_objects = list(migrator.delegate([ExampleModel]))
+    assert db_objects == [
+        (
+            DBTable(table_name="examplemodel"),
+            [],
+        ),
+        (
+            DBColumn(
+                table_name="examplemodel",
+                column_name="id",
+                column_type=ColumnType.UUID,
+                column_is_list=False,
+                nullable=False,
+            ),
+            [
+                DBTable(table_name="examplemodel"),
+            ],
+        ),
+        (
+            DBColumn(
+                table_name="examplemodel",
+                column_name="values",
+                column_type=ColumnType.UUID,
+                column_is_list=True,
+                nullable=False,
+            ),
+            [
+                DBTable(table_name="examplemodel"),
+            ],
+        ),
+        (
+            DBConstraint(
+                table_name="examplemodel",
+                constraint_name="examplemodel_pkey",
+                columns=frozenset({"id"}),
+                constraint_type=ConstraintType.PRIMARY_KEY,
+                foreign_key_constraint=None,
+            ),
+            [
+                DBTable(table_name="examplemodel"),
+                DBColumn(
+                    table_name="examplemodel",
+                    column_name="id",
+                    column_type=ColumnType.UUID,
+                    column_is_list=False,
+                    nullable=False,
+                ),
+                DBColumn(
+                    table_name="examplemodel",
+                    column_name="values",
+                    column_type=ColumnType.UUID,
+                    column_is_list=True,
+                    nullable=False,
+                ),
+            ],
+        ),
+    ]
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "field_name, annotation, field_info, expected_db_objects",

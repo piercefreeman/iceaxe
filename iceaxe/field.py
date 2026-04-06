@@ -20,6 +20,7 @@ from iceaxe.comparison import ComparisonBase
 from iceaxe.postgres import PostgresFieldBase
 from iceaxe.queries_str import QueryIdentifier, QueryLiteral
 from iceaxe.sql_types import ColumnType
+from iceaxe.typing import convert_value_from_db_storage, convert_value_to_db_storage
 
 if TYPE_CHECKING:
     from iceaxe.base import TableBase
@@ -171,10 +172,16 @@ class DBFieldInfo(FieldInfo):
     def to_db_value(self, value: Any):
         if self.is_json:
             return json_dumps(value)
+        if self.annotation is not None:
+            return convert_value_to_db_storage(value, self.annotation)
         return value
 
     def from_db_value(self, value: Any):
-        if not self.is_json or value is None:
+        if not self.is_json:
+            if self.annotation is None:
+                return value
+            return convert_value_from_db_storage(value, self.annotation)
+        if value is None:
             return value
 
         parsed_value = json_loads(value) if isinstance(value, str) else value

@@ -332,6 +332,34 @@ class DBConnection:
             ]
 
             result_all = optimize_exec_casting(values, query._select_raw, select_types)
+            column_cast_indices: list[int] = []
+            for index, select_raw in enumerate(query._select_raw):
+                if is_column(select_raw) and not select_raw.field_definition.is_json:
+                    column_cast_indices.append(index)
+            if column_cast_indices:
+                for result_index, row in enumerate(result_all):
+                    if len(query._select_raw) == 1:
+                        select_raw = cast(
+                            DBFieldClassDefinition[Any],
+                            query._select_raw[0],
+                        )
+                        result_all[result_index] = (
+                            select_raw.field_definition.from_db_value(row)
+                        )
+                        continue
+
+                    row_values = list(cast(tuple[Any, ...], row))
+                    for column_index in column_cast_indices:
+                        select_raw = cast(
+                            DBFieldClassDefinition[Any],
+                            query._select_raw[column_index],
+                        )
+                        row_values[column_index] = (
+                            select_raw.field_definition.from_db_value(
+                                row_values[column_index]
+                            )
+                        )
+                    result_all[result_index] = tuple(row_values)
 
             # Only loop through results if we have verbosity enabled, since this logic otherwise
             # is wasted if no content will eventually be logged

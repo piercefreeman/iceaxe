@@ -1,4 +1,5 @@
 from typing import Annotated, Any, Generic, TypeVar, cast
+from uuid import UUID
 
 from iceaxe.base import (
     DBModelMetaclass,
@@ -92,3 +93,28 @@ def test_model_fields_with_annotated_metadata():
     assert field.annotation == dict[str, Any] | None
     assert field.default is None
     assert field.is_json is True
+
+
+def test_model_fields_with_simple_uuid_subclass():
+    class CustomUUID(UUID):
+        pass
+
+    class Event(TableBase, autodetect=False):
+        id: CustomUUID
+        maybe_id: CustomUUID | None = None
+        ids: list[CustomUUID]
+
+    raw_uuid = UUID("12345678-1234-5678-1234-567812345678")
+    event = cast(
+        Any,
+        Event,
+    )(
+        id=raw_uuid,
+        maybe_id=str(raw_uuid),
+        ids=[raw_uuid, str(raw_uuid)],
+    )
+
+    assert event.model_fields["id"].annotation == CustomUUID
+    assert isinstance(event.id, CustomUUID)
+    assert isinstance(event.maybe_id, CustomUUID)
+    assert all(isinstance(value, CustomUUID) for value in event.ids)
