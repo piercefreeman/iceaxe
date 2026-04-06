@@ -4,7 +4,10 @@ from .base import (
     TableBase as TableBase,
     UniqueConstraint as UniqueConstraint,
 )
-from .exceptions import IceaxeQueryError as IceaxeQueryError
+from .exceptions import (
+    IceaxeQueryError as IceaxeQueryError,
+    NoObjectFound as NoObjectFound,
+)
 from .field import Field as Field
 from .functions import func as func
 from .postgres import PostgresDateTime as PostgresDateTime, PostgresTime as PostgresTime

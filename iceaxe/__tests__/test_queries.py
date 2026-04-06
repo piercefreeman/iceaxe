@@ -1,5 +1,5 @@
 from enum import IntEnum, StrEnum
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import pytest
 
@@ -10,6 +10,7 @@ from iceaxe.__tests__.conf_models import (
     FunctionDemoModel,
     UserDemo,
 )
+from iceaxe.__tests__.helpers import pyright_raises
 from iceaxe.functions import func
 from iceaxe.queries import QueryBuilder, and_, or_, select
 
@@ -27,6 +28,27 @@ def test_select():
         '"userdemo_name", "userdemo"."email" AS "userdemo_email" FROM "userdemo"',
         [],
     )
+
+
+def test_select_one():
+    new_query = select(UserDemo).one()
+    assert new_query.build() == (
+        'SELECT "userdemo"."id" AS "userdemo_id", "userdemo"."name" AS '
+        '"userdemo_name", "userdemo"."email" AS "userdemo_email" FROM "userdemo" LIMIT 1',
+        [],
+    )
+
+
+def test_one_requires_single_full_model():
+    with pytest.raises(
+        ValueError, match="one\\(\\) only supports selecting a single full table model"
+    ):
+        cast(Any, select(UserDemo.email)).one()
+
+    with pytest.raises(
+        ValueError, match="one\\(\\) only supports selecting a single full table model"
+    ):
+        cast(Any, select((UserDemo,))).one()
 
 
 def test_select_single_field():
@@ -581,6 +603,18 @@ def test_select_single_typehint():
     query = select(UserDemo)
     if TYPE_CHECKING:
         _: QueryBuilder[UserDemo, Literal["SELECT"]] = query
+
+
+def test_select_one_typehint():
+    query = select(UserDemo).one()
+    if TYPE_CHECKING:
+        _: QueryBuilder[UserDemo, Literal["SELECT_ONE"]] = query
+
+
+def test_select_one_partial_typehint_error():
+    with pyright_raises("reportAttributeAccessIssue"):
+        if TYPE_CHECKING:
+            select(UserDemo.id).one()  # type: ignore
 
 
 def test_select_multiple_typehints():

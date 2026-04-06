@@ -65,7 +65,11 @@ T10 = TypeVar("T10", bound=SUPPORTED_SELECTS)
 Ts = TypeVarTuple("Ts")
 
 
-QueryType = TypeVar("QueryType", bound=Literal["SELECT", "INSERT", "UPDATE", "DELETE"])
+QueryType = TypeVar(
+    "QueryType",
+    bound=Literal["SELECT", "SELECT_ONE", "INSERT", "UPDATE", "DELETE"],
+)
+TableSelectType = TypeVar("TableSelectType", bound=TableBase)
 
 
 JoinType = Literal["INNER", "LEFT", "RIGHT", "FULL"]
@@ -145,6 +149,7 @@ class QueryBuilder(Generic[P, QueryType]):
         self._main_model: Type[TableBase] | None = None
 
         self._return_typehint: P
+        self._is_single_select_expression = False
 
         self._where_conditions: list[FieldComparison | FieldComparisonGroup] = []
         self._order_by_clauses: list[str] = []
@@ -429,8 +434,10 @@ class QueryBuilder(Generic[P, QueryType]):
         ]
         if not isinstance(fields, tuple):
             all_fields = (fields,)  # type: ignore
+            self._is_single_select_expression = True
         else:
             all_fields = fields  # type: ignore
+            self._is_single_select_expression = False
 
         # Verify the field type
         for field in all_fields:
@@ -446,6 +453,33 @@ class QueryBuilder(Generic[P, QueryType]):
 
         self._select_inner(all_fields)
 
+        return self  # type: ignore
+
+    @allow_branching
+    def one(
+        self: QueryBuilder[TableSelectType, Literal["SELECT"]],
+    ) -> QueryBuilder[TableSelectType, Literal["SELECT_ONE"]]:
+        """
+        Converts a full-model SELECT query into a single-object SELECT.
+
+        This is currently limited to selects of a single full model expression and
+        always applies `LIMIT 1` at build time.
+
+        :return: A QueryBuilder instance configured for a single-object SELECT
+
+        """
+        if self._query_type != "SELECT":
+            raise ValueError("one() is only valid on SELECT queries")
+
+        if (
+            not self._is_single_select_expression
+            or len(self._select_raw) != 1
+            or not is_base_table(self._select_raw[0])
+        ):
+            raise ValueError("one() only supports selecting a single full table model.")
+
+        self._query_type = "SELECT_ONE"  # type: ignore
+        self._limit_value = 1
         return self  # type: ignore
 
     def _select_inner(
@@ -986,7 +1020,7 @@ class QueryBuilder(Generic[P, QueryType]):
         query = ""
         variables: list[Any] = []
 
-        if self._query_type == "SELECT":
+        if self._query_type in ("SELECT", "SELECT_ONE"):
             if not self._main_model:
                 raise ValueError("No model selected for query")
 
@@ -1055,8 +1089,9 @@ class QueryBuilder(Generic[P, QueryType]):
         if self._order_by_clauses:
             query += " ORDER BY " + ", ".join(self._order_by_clauses)
 
-        if self._limit_value is not None:
-            query += f" LIMIT {self._limit_value}"
+        effective_limit = 1 if self._query_type == "SELECT_ONE" else self._limit_value
+        if effective_limit is not None:
+            query += f" LIMIT {effective_limit}"
 
         if self._offset_value is not None:
             query += f" OFFSET {self._offset_value}"

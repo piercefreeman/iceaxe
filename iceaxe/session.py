@@ -18,7 +18,7 @@ import asyncpg
 from typing_extensions import TypeVarTuple
 
 from iceaxe.base import DBFieldClassDefinition, DBModelMetaclass, TableBase
-from iceaxe.exceptions import wrap_query_error
+from iceaxe.exceptions import NoObjectFound, wrap_query_error
 from iceaxe.logging import LOGGER
 from iceaxe.modifications import ModificationTracker
 from iceaxe.queries import (
@@ -262,6 +262,11 @@ class DBConnection:
     async def exec(self, query: QueryBuilder[T, Literal["SELECT"]]) -> list[T]: ...
 
     @overload
+    async def exec(
+        self, query: QueryBuilder[TableType, Literal["SELECT_ONE"]]
+    ) -> TableType: ...
+
+    @overload
     async def exec(self, query: QueryBuilder[T, Literal["INSERT"]]) -> None: ...
 
     @overload
@@ -273,10 +278,11 @@ class DBConnection:
     async def exec(
         self,
         query: QueryBuilder[T, Literal["SELECT"]]
+        | QueryBuilder[TableType, Literal["SELECT_ONE"]]
         | QueryBuilder[T, Literal["INSERT"]]
         | QueryBuilder[T, Literal["UPDATE"]]
         | QueryBuilder[T, Literal["DELETE"]],
-    ) -> list[T] | None:
+    ) -> list[T] | TableType | None:
         """
         Execute a query built with QueryBuilder and return the results.
 
@@ -304,7 +310,7 @@ class DBConnection:
         ```
 
         :param query: A QueryBuilder instance representing the query to execute
-        :return: For SELECT queries, returns a list of results. For other queries, returns None
+        :return: For SELECT queries, returns results. For other queries, returns None
 
         """
         sql_text, variables = query.build()
@@ -314,7 +320,7 @@ class DBConnection:
         except asyncpg.PostgresError as e:
             raise wrap_query_error(e, sql_text, tuple(variables)) from e
 
-        if query._query_type == "SELECT":
+        if query._query_type in ("SELECT", "SELECT_ONE"):
             # Pre-cache the select types for better performance
             select_types = [
                 (
@@ -337,6 +343,15 @@ class DBConnection:
                             element.register_modified_callback(
                                 self.modification_tracker.track_modification
                             )
+
+            if query._query_type == "SELECT_ONE":
+                if not result_all:
+                    raise NoObjectFound(
+                        cast(type[TableBase], query._select_raw[0]),
+                        sql_text,
+                        tuple(variables),
+                    )
+                return cast(TableType, result_all[0])
 
             return cast(list[T], result_all)
 
