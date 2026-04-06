@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import types
+from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from enum import Enum, IntEnum, StrEnum
 from inspect import isclass
@@ -51,6 +52,15 @@ SIMPLE_SUBCLASS_BASE_TYPES = (
 T = TypeVar("T")
 
 
+@dataclass(frozen=True)
+class ResolvedFieldAnnotation:
+    runtime_annotation: Any
+    storage_annotation: Any
+    is_list: bool
+    is_nullable: bool
+    is_simple_subclass: bool
+
+
 class SimpleSubclassAnnotation:
     def __init__(self, subtype: type[Any], base_type: type[Any]):
         self.subtype = subtype
@@ -76,23 +86,35 @@ def _is_union_type(annotation: Any) -> bool:
     return origin is Union or isinstance(annotation, types.UnionType)
 
 
-def _rebuild_annotation(origin: Any, args: tuple[Any, ...]):
-    if not args:
-        return origin
-    if len(args) == 1:
-        item = args[0]
-        if hasattr(origin, "__class_getitem__"):
-            return origin.__class_getitem__(item)
-        return origin[item]
-    if hasattr(origin, "__class_getitem__"):
-        return origin.__class_getitem__(args)
-    return origin[args]
+def _rebuild_annotation(annotation: Any, args: tuple[Any, ...]):
+    if _is_union_type(annotation):
+        return Union[args]  # type: ignore
+
+    origin = get_origin(annotation)
+    if origin is None:
+        return annotation
+
+    item = args[0] if len(args) == 1 else args
+    return origin[item]
 
 
 def unwrap_annotated(annotation: Any) -> Any:
     while get_origin(annotation) is Annotated:
         annotation = get_args(annotation)[0]
     return annotation
+
+
+def _get_optional_annotation_inner(annotation: Any) -> Any | None:
+    if not _is_union_type(annotation):
+        return None
+
+    non_null_args = tuple(
+        arg for arg in get_args(annotation) if unwrap_annotated(arg) is not type(None)
+    )
+    if len(non_null_args) != 1:
+        return None
+
+    return non_null_args[0]
 
 
 def get_simple_subclass_base_type(annotation: Any) -> type[Any] | None:
@@ -112,6 +134,39 @@ def get_simple_subclass_base_type(annotation: Any) -> type[Any] | None:
         return None
 
     return min(matches, key=lambda match: match[0])[1]
+
+
+def resolve_field_annotation(annotation: Any) -> ResolvedFieldAnnotation:
+    is_list = False
+    is_nullable = False
+    current = annotation
+
+    while True:
+        current = unwrap_annotated(current)
+
+        optional_inner = _get_optional_annotation_inner(current)
+        if optional_inner is not None:
+            is_nullable = True
+            current = optional_inner
+            continue
+
+        if not is_list and get_origin(current) is list:
+            (current,) = get_args(current)
+            is_list = True
+            continue
+
+        break
+
+    current = unwrap_annotated(current)
+    base_type = get_simple_subclass_base_type(current)
+
+    return ResolvedFieldAnnotation(
+        runtime_annotation=current,
+        storage_annotation=base_type or current,
+        is_list=is_list,
+        is_nullable=is_nullable,
+        is_simple_subclass=base_type is not None,
+    )
 
 
 def normalize_simple_subclass_annotation(annotation: Any) -> Any:
@@ -138,52 +193,30 @@ def normalize_simple_subclass_annotation(annotation: Any) -> Any:
             return annotation
         return Annotated[normalized_inner, *metadata]
 
-    if _is_union_type(annotation):
-        normalized_args = tuple(
-            normalize_simple_subclass_annotation(arg) for arg in get_args(annotation)
-        )
-        if normalized_args == get_args(annotation):
-            return annotation
-        return Union[normalized_args]  # type: ignore
-
     if origin is not None:
         normalized_args = tuple(
             normalize_simple_subclass_annotation(arg) for arg in get_args(annotation)
         )
         if normalized_args == get_args(annotation):
             return annotation
-        return _rebuild_annotation(origin, normalized_args)
+        return _rebuild_annotation(annotation, normalized_args)
 
-    base_type = get_simple_subclass_base_type(annotation)
-    if base_type is None:
+    resolved = resolve_field_annotation(annotation)
+    if not resolved.is_simple_subclass:
         return annotation
 
-    return Annotated[annotation, SimpleSubclassAnnotation(annotation, base_type)]
+    return Annotated[
+        annotation,
+        SimpleSubclassAnnotation(
+            resolved.runtime_annotation,
+            resolved.storage_annotation,
+        ),
+    ]
 
 
 def get_db_storage_annotation(annotation: Any) -> tuple[Any, bool]:
-    annotation = unwrap_annotated(annotation)
-
-    if _is_union_type(annotation):
-        non_null_args = tuple(
-            arg
-            for arg in get_args(annotation)
-            if unwrap_annotated(arg) is not type(None)
-        )
-        if len(non_null_args) == 1:
-            return get_db_storage_annotation(non_null_args[0])
-        return annotation, False
-
-    origin = get_origin(annotation)
-    if origin is list:
-        (value_type,) = get_args(annotation)
-        resolved_type, _ = get_db_storage_annotation(value_type)
-        return resolved_type, True
-
-    base_type = get_simple_subclass_base_type(annotation)
-    if base_type is not None:
-        return base_type, False
-    return annotation, False
+    resolved = resolve_field_annotation(annotation)
+    return resolved.storage_annotation, resolved.is_list
 
 
 def convert_value_to_db_storage(value: Any, annotation: Any) -> Any:
@@ -198,34 +231,14 @@ def _convert_simple_subclass_value(value: Any, annotation: Any, *, to_db: bool) 
     if value is None:
         return None
 
-    annotation = unwrap_annotated(annotation)
-    if _is_union_type(annotation):
-        non_null_args = tuple(
-            arg
-            for arg in get_args(annotation)
-            if unwrap_annotated(arg) is not type(None)
-        )
-        if len(non_null_args) == 1:
-            return _convert_simple_subclass_value(
-                value,
-                non_null_args[0],
-                to_db=to_db,
-            )
+    resolved = resolve_field_annotation(annotation)
+    if not resolved.is_simple_subclass:
         return value
 
-    origin = get_origin(annotation)
-    if origin is list:
-        (value_type,) = get_args(annotation)
-        return [
-            _convert_simple_subclass_value(item, value_type, to_db=to_db)
-            for item in value
-        ]
+    target_type = resolved.storage_annotation if to_db else resolved.runtime_annotation
+    if resolved.is_list:
+        return [_coerce_simple_subclass_value(item, target_type) for item in value]
 
-    base_type = get_simple_subclass_base_type(annotation)
-    if base_type is None:
-        return value
-
-    target_type = base_type if to_db else annotation
     return _coerce_simple_subclass_value(value, target_type)
 
 
