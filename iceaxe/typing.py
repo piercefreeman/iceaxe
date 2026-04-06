@@ -38,10 +38,9 @@ JSON_WRAPPER_FALLBACK = list[Any] | dict[Any, Any]
 T = TypeVar("T")
 
 
-@dataclass(frozen=True)
-class ResolvedTypehint:
-    runtime_type: Any
-    is_list: bool
+#
+# Simple type utility function
+#
 
 
 def is_union_type(annotation: Any) -> bool:
@@ -78,6 +77,17 @@ def get_optional_inner(annotation: Any) -> Any | None:
         return None
 
     return non_null_args[0]
+
+
+#
+# Type introspection
+#
+
+
+@dataclass(frozen=True)
+class ResolvedTypehint:
+    runtime_type: Any
+    is_list: bool
 
 
 def resolve_typehint(annotation: Any) -> ResolvedTypehint:
@@ -145,6 +155,11 @@ def transform_typehint(
         return transform(rebuild_typehint(annotation, args))
 
     return transform(annotation)
+
+
+#
+# Typeguards
+#
 
 
 def is_base_table(obj: Any) -> TypeGuard[type[TableBase]]:
