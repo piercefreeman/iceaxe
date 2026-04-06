@@ -52,6 +52,8 @@ class DBModelMetaclass(_model_construction.ModelMetaclass):
         Create a new database model class with proper field tracking.
         Handles registration of the model and processes any table-specific arguments.
         """
+        # Pydantic must see these normalized annotations up front; otherwise simple
+        # subclasses like `CustomUUID(UUID)` are treated as unknown types.
         namespace = dict(namespace)
         raw_annotations = namespace.get("__annotations__", {})
         if raw_annotations:

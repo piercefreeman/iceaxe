@@ -219,6 +219,50 @@ class DBConnection:
 
         return "".join(dsn_parts)
 
+    def _cast_column_select_results(
+        self,
+        results: list[Any],
+        select_raw: Sequence[Any],
+    ) -> list[Any]:
+        """
+        Apply field-level `from_db_value` casting to direct column selections.
+
+        The optimized select path already constructs full table objects with each
+        field deserialized through the model metadata. Direct column selections are
+        intentionally left as raw driver values for speed, which means subclass-backed
+        fields like `CustomUUID(UUID)` come back as the base database type instead of
+        the annotated runtime type. This helper restores that field-level coercion for
+        non-JSON column selects while leaving table, alias, and function selections on
+        the existing fast path.
+
+        """
+        column_cast_indices: list[int] = []
+        for index, raw_value in enumerate(select_raw):
+            if is_column(raw_value) and not raw_value.field_definition.is_json:
+                column_cast_indices.append(index)
+
+        if not column_cast_indices:
+            return results
+
+        for result_index, row in enumerate(results):
+            if len(select_raw) == 1:
+                raw_column = cast(DBFieldClassDefinition[Any], select_raw[0])
+                results[result_index] = raw_column.field_definition.from_db_value(row)
+                continue
+
+            row_values = list(cast(tuple[Any, ...], row))
+            for column_index in column_cast_indices:
+                raw_column = cast(
+                    DBFieldClassDefinition[Any],
+                    select_raw[column_index],
+                )
+                row_values[column_index] = raw_column.field_definition.from_db_value(
+                    row_values[column_index]
+                )
+            results[result_index] = tuple(row_values)
+
+        return results
+
     @asynccontextmanager
     async def transaction(self, *, ensure: bool = False):
         """
@@ -332,34 +376,10 @@ class DBConnection:
             ]
 
             result_all = optimize_exec_casting(values, query._select_raw, select_types)
-            column_cast_indices: list[int] = []
-            for index, select_raw in enumerate(query._select_raw):
-                if is_column(select_raw) and not select_raw.field_definition.is_json:
-                    column_cast_indices.append(index)
-            if column_cast_indices:
-                for result_index, row in enumerate(result_all):
-                    if len(query._select_raw) == 1:
-                        select_raw = cast(
-                            DBFieldClassDefinition[Any],
-                            query._select_raw[0],
-                        )
-                        result_all[result_index] = (
-                            select_raw.field_definition.from_db_value(row)
-                        )
-                        continue
-
-                    row_values = list(cast(tuple[Any, ...], row))
-                    for column_index in column_cast_indices:
-                        select_raw = cast(
-                            DBFieldClassDefinition[Any],
-                            query._select_raw[column_index],
-                        )
-                        row_values[column_index] = (
-                            select_raw.field_definition.from_db_value(
-                                row_values[column_index]
-                            )
-                        )
-                    result_all[result_index] = tuple(row_values)
+            result_all = self._cast_column_select_results(
+                result_all,
+                query._select_raw,
+            )
 
             # Only loop through results if we have verbosity enabled, since this logic otherwise
             # is wasted if no content will eventually be logged
