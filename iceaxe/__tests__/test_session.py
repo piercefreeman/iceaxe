@@ -18,10 +18,10 @@ from iceaxe.__tests__.conf_models import (
     UserDemo,
 )
 from iceaxe.base import INTERNAL_TABLE_FIELDS, TableBase
-from iceaxe.exceptions import IceaxeQueryError
+from iceaxe.exceptions import IceaxeQueryError, NoObjectFound
 from iceaxe.field import Field
 from iceaxe.functions import func
-from iceaxe.queries import QueryBuilder
+from iceaxe.queries import QueryBuilder, select
 from iceaxe.schemas.cli import create_all
 from iceaxe.session import (
     PG_MAX_PARAMETERS,
@@ -218,6 +218,33 @@ async def test_select(db_connection: DBConnection):
             "john@example.com",
         )
     ]
+
+
+@pytest.mark.asyncio
+async def test_select_one(db_connection: DBConnection):
+    user = UserDemo(name="John Doe", email="john@example.com")
+    await db_connection.insert([user])
+
+    result = await db_connection.exec(
+        select(UserDemo).where(UserDemo.name == "John Doe").one()
+    )
+    assert result == UserDemo(id=user.id, name="John Doe", email="john@example.com")
+
+
+@pytest.mark.asyncio
+async def test_select_one_missing_raises(db_connection: DBConnection):
+    query = select(UserDemo).where(UserDemo.id == 999).one()
+
+    with pytest.raises(NoObjectFound, match="No UserDemo object found") as exc_info:
+        await db_connection.exec(query)
+
+    assert exc_info.value.object_type is UserDemo
+    assert exc_info.value.sql_text == (
+        'SELECT "userdemo"."id" AS "userdemo_id", "userdemo"."name" AS '
+        '"userdemo_name", "userdemo"."email" AS "userdemo_email" FROM "userdemo" '
+        'WHERE "userdemo"."id" = $1 LIMIT 1'
+    )
+    assert exc_info.value.variables == (999,)
 
 
 @pytest.mark.asyncio

@@ -1,6 +1,23 @@
 from functools import lru_cache
+from typing import Any
 
 import asyncpg
+
+
+class NoObjectFound(LookupError):
+    """
+    Query completed successfully but returned no rows for a `.one()` lookup.
+    """
+
+    def __init__(
+        self, object_type: type[Any], sql_text: str, variables: tuple[Any, ...]
+    ):
+        self.object_type = object_type
+        self.sql_text = sql_text
+        self.variables = variables
+
+        context = f"\nQuery: {sql_text}\nVariables: {variables}"
+        super().__init__(f"No {object_type.__name__} object found.{context}")
 
 
 class IceaxeQueryError(asyncpg.PostgresError):
