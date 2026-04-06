@@ -12,7 +12,9 @@ from pydantic import BaseModel, Field as PydanticField
 from pydantic.main import _model_construction
 from pydantic_core import PydanticUndefined
 
+from iceaxe.custom_typehints import wrap_simple_subclass_annotation
 from iceaxe.field import DBFieldClassDefinition, DBFieldInfo, Field
+from iceaxe.typing import transform_typehint
 
 
 @dataclass_transform(kw_only_default=True, field_specifiers=(PydanticField,))
@@ -51,6 +53,20 @@ class DBModelMetaclass(_model_construction.ModelMetaclass):
         Create a new database model class with proper field tracking.
         Handles registration of the model and processes any table-specific arguments.
         """
+        # Pydantic must see these normalized annotations up front; otherwise simple
+        # subclasses like `CustomUUID(UUID)` are treated as unknown types.
+        namespace = dict(namespace)
+        raw_annotations = namespace.get("__annotations__", {})
+        if raw_annotations:
+            namespace["__annotations__"] = {
+                key: (
+                    transform_typehint(annotation, wrap_simple_subclass_annotation)
+                    if not isinstance(annotation, str)
+                    else annotation
+                )
+                for key, annotation in raw_annotations.items()
+            }
+
         raw_kwargs = {**kwargs}
 
         mcs.is_constructing = True

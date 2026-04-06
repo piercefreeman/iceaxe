@@ -3,6 +3,7 @@ from enum import StrEnum
 from json import dumps as json_dumps, loads as json_loads
 from typing import Any, Type
 from unittest.mock import AsyncMock, patch
+from uuid import UUID
 
 import asyncpg
 import pytest
@@ -64,6 +65,44 @@ async def test_db_connection_update(db_connection: DBConnection):
     assert len(result) == 1
     assert result[0]["name"] == "Jane Doe"
     assert user.get_modified_attributes() == {}
+
+
+@pytest.mark.asyncio
+async def test_db_connection_uuid_subclass_round_trip(
+    db_connection: DBConnection,
+    clear_all_database_objects,
+):
+    class CustomUUID(UUID):
+        pass
+
+    class UUIDSubclassDemo(TableBase):
+        id: CustomUUID = Field(primary_key=True)
+
+    await db_connection.conn.execute("DROP TABLE IF EXISTS uuidsubclassdemo")
+    await create_all(db_connection, [UUIDSubclassDemo])
+
+    row_id = CustomUUID("12345678-1234-5678-1234-567812345678")
+    demo = UUIDSubclassDemo(id=row_id)
+    await db_connection.insert([demo])
+
+    raw_row = await db_connection.conn.fetchrow(
+        "SELECT id FROM uuidsubclassdemo WHERE id = $1",
+        UUID(str(row_id)),
+    )
+    assert raw_row is not None
+    assert isinstance(raw_row["id"], UUID)
+
+    result = await db_connection.exec(
+        QueryBuilder().select(UUIDSubclassDemo).where(UUIDSubclassDemo.id == row_id)
+    )
+    assert len(result) == 1
+    assert isinstance(result[0].id, CustomUUID)
+
+    selected_ids = await db_connection.exec(
+        QueryBuilder().select(UUIDSubclassDemo.id).where(UUIDSubclassDemo.id == row_id)
+    )
+    assert selected_ids == [row_id]
+    assert isinstance(selected_ids[0], CustomUUID)
 
 
 @pytest.mark.asyncio

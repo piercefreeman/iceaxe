@@ -17,6 +17,7 @@ from pydantic.fields import FieldInfo, _FieldInfoInputs
 from pydantic_core import PydanticUndefined
 
 from iceaxe.comparison import ComparisonBase
+from iceaxe.custom_typehints import convert_simple_subclass_value
 from iceaxe.postgres import PostgresFieldBase
 from iceaxe.queries_str import QueryIdentifier, QueryLiteral
 from iceaxe.sql_types import ColumnType
@@ -171,10 +172,16 @@ class DBFieldInfo(FieldInfo):
     def to_db_value(self, value: Any):
         if self.is_json:
             return json_dumps(value)
+        if self.annotation is not None:
+            return convert_simple_subclass_value(value, self.annotation, to_db=True)
         return value
 
     def from_db_value(self, value: Any):
-        if not self.is_json or value is None:
+        if not self.is_json:
+            if self.annotation is None:
+                return value
+            return convert_simple_subclass_value(value, self.annotation, to_db=False)
+        if value is None:
             return value
 
         parsed_value = json_loads(value) if isinstance(value, str) else value

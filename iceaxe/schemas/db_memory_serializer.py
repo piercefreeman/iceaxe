@@ -14,6 +14,7 @@ from iceaxe.base import (
     TableBase,
     UniqueConstraint,
 )
+from iceaxe.custom_typehints import get_simple_subclass_base_type
 from iceaxe.generics import (
     get_typevar_mapping,
     has_null_type,
@@ -51,6 +52,7 @@ from iceaxe.typing import (
     DATE_TYPES,
     JSON_WRAPPER_FALLBACK,
     PRIMITIVE_WRAPPER_TYPES,
+    resolve_typehint,
 )
 
 NodeYieldType = Union[DBObject, DBObjectPointer, "NodeDefinition"]
@@ -423,39 +425,51 @@ class DatabaseHandler:
             )
 
         annotation = remove_null_type(info.annotation)
+        resolved_annotation = resolve_typehint(annotation)
+        storage_annotation = (
+            get_simple_subclass_base_type(resolved_annotation.runtime_type)
+            or resolved_annotation.runtime_type
+        )
+        is_list = resolved_annotation.is_list
 
         # Resolve the type of the column, if generic
-        if isinstance(annotation, TypeVar):
+        if isinstance(storage_annotation, TypeVar):
             typevar_map = get_typevar_mapping(table)
-            annotation = typevar_map[annotation]
+            storage_annotation = typevar_map[storage_annotation]
+            resolved_annotation = resolve_typehint(storage_annotation)
+            storage_annotation = (
+                get_simple_subclass_base_type(resolved_annotation.runtime_type)
+                or resolved_annotation.runtime_type
+            )
+            is_list = resolved_annotation.is_list
 
         # Should be prioritized in terms of MRO; StrEnums should be processed
         # before the str types
-        if is_type_compatible(annotation, ALL_ENUM_TYPES):
+        if is_type_compatible(storage_annotation, ALL_ENUM_TYPES):
             # We only support string values for enums because postgres enums are defined
             # as name-based types
-            for value in annotation:  # type: ignore
+            for value in storage_annotation:  # type: ignore
                 if not isinstance(value.value, str):
                     raise ValueError(
-                        f"Only string values are supported for enums, received: {value.value} (enum: {annotation})"
+                        f"Only string values are supported for enums, received: {value.value} (enum: {storage_annotation})"
                     )
 
             return TypeDeclarationResponse(
                 custom_type=DBType(
-                    name=enum_to_name(annotation),  # type: ignore
-                    values=frozenset([value.value for value in annotation]),  # type: ignore
+                    name=enum_to_name(storage_annotation),  # type: ignore
+                    values=frozenset([value.value for value in storage_annotation]),  # type: ignore
                     reference_columns=frozenset({(table.get_table_name(), key)}),
                 ),
             )
-        elif is_type_compatible(annotation, PRIMITIVE_WRAPPER_TYPES):
+        elif is_type_compatible(storage_annotation, PRIMITIVE_WRAPPER_TYPES):
             for primitive, json_type in self.python_to_sql.items():
-                if annotation == primitive or annotation == list[primitive]:  # type: ignore
+                if storage_annotation == primitive:  # type: ignore
                     return TypeDeclarationResponse(
                         primitive_type=json_type,
-                        is_list=(annotation == list[primitive]),  # type: ignore
+                        is_list=is_list,
                     )
-        elif is_type_compatible(annotation, DATE_TYPES):
-            if is_type_compatible(annotation, datetime):  # type: ignore
+        elif is_type_compatible(storage_annotation, DATE_TYPES):
+            if is_type_compatible(storage_annotation, datetime):  # type: ignore
                 if isinstance(info.postgres_config, PostgresDateTime):
                     return TypeDeclarationResponse(
                         primitive_type=(
@@ -468,11 +482,11 @@ class DatabaseHandler:
                 return TypeDeclarationResponse(
                     primitive_type=ColumnType.TIMESTAMP_WITHOUT_TIME_ZONE,
                 )
-            elif is_type_compatible(annotation, date):  # type: ignore
+            elif is_type_compatible(storage_annotation, date):  # type: ignore
                 return TypeDeclarationResponse(
                     primitive_type=ColumnType.DATE,
                 )
-            elif is_type_compatible(annotation, time):  # type: ignore
+            elif is_type_compatible(storage_annotation, time):  # type: ignore
                 if isinstance(info.postgres_config, PostgresTime):
                     return TypeDeclarationResponse(
                         primitive_type=(
@@ -484,34 +498,34 @@ class DatabaseHandler:
                 return TypeDeclarationResponse(
                     primitive_type=ColumnType.TIME_WITHOUT_TIME_ZONE,
                 )
-            elif is_type_compatible(annotation, timedelta):  # type: ignore
+            elif is_type_compatible(storage_annotation, timedelta):  # type: ignore
                 return TypeDeclarationResponse(
                     primitive_type=ColumnType.INTERVAL,
                 )
             else:
-                raise ValueError(f"Unsupported date type: {annotation}")
-        elif is_type_compatible(annotation, BaseModel):
+                raise ValueError(f"Unsupported date type: {storage_annotation}")
+        elif is_type_compatible(storage_annotation, BaseModel):
             if info.is_json:
                 return TypeDeclarationResponse(
                     primitive_type=ColumnType.JSON,
                 )
             else:
                 raise ValueError(
-                    f"Pydantic model fields must have Field(is_json=True) specified: {annotation}\n"
+                    f"Pydantic model fields must have Field(is_json=True) specified: {storage_annotation}\n"
                     f"Column: {table.__name__}.{key}"
                 )
-        elif is_type_compatible(annotation, JSON_WRAPPER_FALLBACK):
+        elif is_type_compatible(storage_annotation, JSON_WRAPPER_FALLBACK):
             if info.is_json:
                 return TypeDeclarationResponse(
                     primitive_type=ColumnType.JSON,
                 )
             else:
                 raise ValueError(
-                    f"JSON fields must have Field(is_json=True) specified: {annotation}\n"
+                    f"JSON fields must have Field(is_json=True) specified: {storage_annotation}\n"
                     f"Column: {table.__name__}.{key}"
                 )
 
-        raise ValueError(f"Unsupported column type: {annotation}")
+        raise ValueError(f"Unsupported column type: {storage_annotation}")
 
     def handle_single_constraints(
         self, key: str, info: DBFieldInfo, table: Type[TableBase]
