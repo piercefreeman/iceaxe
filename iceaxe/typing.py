@@ -9,6 +9,7 @@ from typing import (
     TYPE_CHECKING,
     Annotated,
     Any,
+    Callable,
     Type,
     TypeGuard,
     TypeVar,
@@ -17,9 +18,6 @@ from typing import (
     get_origin,
 )
 from uuid import UUID
-
-from pydantic import GetCoreSchemaHandler
-from pydantic_core import core_schema
 
 if TYPE_CHECKING:
     from iceaxe.alias_values import Alias
@@ -36,58 +34,23 @@ PRIMITIVE_TYPES = int | float | str | bool | bytes | UUID
 PRIMITIVE_WRAPPER_TYPES = list[PRIMITIVE_TYPES] | PRIMITIVE_TYPES
 DATE_TYPES = datetime | date | time | timedelta
 JSON_WRAPPER_FALLBACK = list[Any] | dict[Any, Any]
-SIMPLE_SUBCLASS_BASE_TYPES = (
-    datetime,
-    date,
-    time,
-    timedelta,
-    UUID,
-    bytes,
-    str,
-    int,
-    float,
-    bool,
-)
 
 T = TypeVar("T")
 
 
 @dataclass(frozen=True)
-class ResolvedFieldAnnotation:
-    runtime_annotation: Any
-    storage_annotation: Any
+class ResolvedTypehint:
+    runtime_type: Any
     is_list: bool
-    is_nullable: bool
-    is_simple_subclass: bool
 
 
-class SimpleSubclassAnnotation:
-    def __init__(self, subtype: type[Any], base_type: type[Any]):
-        self.subtype = subtype
-        self.base_type = base_type
-
-    def __get_pydantic_core_schema__(
-        self,
-        source_type: Any,
-        handler: GetCoreSchemaHandler,
-    ) -> core_schema.CoreSchema:
-        schema = handler.generate_schema(self.base_type)
-        return core_schema.no_info_after_validator_function(
-            self._cast_value,
-            schema,
-        )
-
-    def _cast_value(self, value: Any):
-        return _coerce_simple_subclass_value(value, self.subtype)
-
-
-def _is_union_type(annotation: Any) -> bool:
+def is_union_type(annotation: Any) -> bool:
     origin = get_origin(annotation)
     return origin is Union or isinstance(annotation, types.UnionType)
 
 
-def _rebuild_annotation(annotation: Any, args: tuple[Any, ...]):
-    if _is_union_type(annotation):
+def rebuild_typehint(annotation: Any, args: tuple[Any, ...]):
+    if is_union_type(annotation):
         return Union[args]  # type: ignore
 
     origin = get_origin(annotation)
@@ -104,8 +67,8 @@ def unwrap_annotated(annotation: Any) -> Any:
     return annotation
 
 
-def _get_optional_annotation_inner(annotation: Any) -> Any | None:
-    if not _is_union_type(annotation):
+def get_optional_inner(annotation: Any) -> Any | None:
+    if not is_union_type(annotation):
         return None
 
     non_null_args = tuple(
@@ -117,36 +80,40 @@ def _get_optional_annotation_inner(annotation: Any) -> Any | None:
     return non_null_args[0]
 
 
-def get_simple_subclass_base_type(annotation: Any) -> type[Any] | None:
-    annotation = unwrap_annotated(annotation)
-    if not isclass(annotation) or annotation in SIMPLE_SUBCLASS_BASE_TYPES:
-        return None
-    if issubclass(annotation, Enum):
-        return None
+def resolve_typehint(annotation: Any) -> ResolvedTypehint:
+    """
+    Normalize a field annotation into the subset of typing structure Iceaxe
+    needs for runtime coercion and schema inference.
 
-    mro = annotation.mro()
-    matches = [
-        (mro.index(base_type), base_type)
-        for base_type in SIMPLE_SUBCLASS_BASE_TYPES
-        if base_type in mro
-    ]
-    if not matches:
-        return None
+    Python annotations can describe the same logical field in several wrapped
+    forms:
+    - `Annotated[T, ...]` carries metadata but doesn't change the core type.
+    - `T | None` / `Optional[T]` is represented as a union and needs to be
+      unwrapped to reach the concrete value type.
+    - `list[T]` means the ORM should treat the column as an array while still
+      reasoning about the element type `T`.
 
-    return min(matches, key=lambda match: match[0])[1]
+    Callers that need to infer database/storage behavior should not each have to
+    reimplement `get_origin()` / `get_args()` handling or care about the exact
+    runtime shape Python uses for unions and annotated metadata. This helper
+    resolves those wrappers into a canonical form:
+    - `runtime_type`: the innermost non-`Annotated`, non-nullable element type
+    - `is_list`: whether the annotation represents a top-level `list[...]`
 
+    The resolver is intentionally narrow. It understands the container/wrapper
+    shapes Iceaxe needs structurally, but it does not try to semantically reduce
+    arbitrary generic types. For example, nested generics are preserved inside
+    `runtime_type` once the top-level list/optional wrappers have been handled.
 
-def resolve_field_annotation(annotation: Any) -> ResolvedFieldAnnotation:
-    is_list = False
-    is_nullable = False
+    """
     current = annotation
+    is_list = False
 
     while True:
         current = unwrap_annotated(current)
 
-        optional_inner = _get_optional_annotation_inner(current)
+        optional_inner = get_optional_inner(current)
         if optional_inner is not None:
-            is_nullable = True
             current = optional_inner
             continue
 
@@ -157,136 +124,27 @@ def resolve_field_annotation(annotation: Any) -> ResolvedFieldAnnotation:
 
         break
 
-    current = unwrap_annotated(current)
-    base_type = get_simple_subclass_base_type(current)
-
-    return ResolvedFieldAnnotation(
-        runtime_annotation=current,
-        storage_annotation=base_type or current,
+    return ResolvedTypehint(
+        runtime_type=unwrap_annotated(current),
         is_list=is_list,
-        is_nullable=is_nullable,
-        is_simple_subclass=base_type is not None,
     )
 
 
-def normalize_simple_subclass_annotation(annotation: Any) -> Any:
+def transform_typehint(
+    annotation: Any,
+    transform: Callable[[Any], Any],
+) -> Any:
     origin = get_origin(annotation)
 
     if origin is Annotated:
         inner, *metadata = get_args(annotation)
-        if any(isinstance(item, SimpleSubclassAnnotation) for item in metadata):
-            normalized_inner = normalize_simple_subclass_annotation(inner)
-            if normalized_inner == inner:
-                return annotation
-            return Annotated[normalized_inner, *metadata]
-
-        base_type = get_simple_subclass_base_type(inner)
-        if base_type is not None:
-            return Annotated[
-                inner,
-                *metadata,
-                SimpleSubclassAnnotation(inner, base_type),
-            ]
-
-        normalized_inner = normalize_simple_subclass_annotation(inner)
-        if normalized_inner == inner:
-            return annotation
-        return Annotated[normalized_inner, *metadata]
+        return transform(Annotated[transform_typehint(inner, transform), *metadata])
 
     if origin is not None:
-        normalized_args = tuple(
-            normalize_simple_subclass_annotation(arg) for arg in get_args(annotation)
-        )
-        if normalized_args == get_args(annotation):
-            return annotation
-        return _rebuild_annotation(annotation, normalized_args)
+        args = tuple(transform_typehint(arg, transform) for arg in get_args(annotation))
+        return transform(rebuild_typehint(annotation, args))
 
-    resolved = resolve_field_annotation(annotation)
-    if not resolved.is_simple_subclass:
-        return annotation
-
-    return Annotated[
-        annotation,
-        SimpleSubclassAnnotation(
-            resolved.runtime_annotation,
-            resolved.storage_annotation,
-        ),
-    ]
-
-
-def get_db_storage_annotation(annotation: Any) -> tuple[Any, bool]:
-    resolved = resolve_field_annotation(annotation)
-    return resolved.storage_annotation, resolved.is_list
-
-
-def convert_value_to_db_storage(value: Any, annotation: Any) -> Any:
-    return _convert_simple_subclass_value(value, annotation, to_db=True)
-
-
-def convert_value_from_db_storage(value: Any, annotation: Any) -> Any:
-    return _convert_simple_subclass_value(value, annotation, to_db=False)
-
-
-def _convert_simple_subclass_value(value: Any, annotation: Any, *, to_db: bool) -> Any:
-    if value is None:
-        return None
-
-    resolved = resolve_field_annotation(annotation)
-    if not resolved.is_simple_subclass:
-        return value
-
-    target_type = resolved.storage_annotation if to_db else resolved.runtime_annotation
-    if resolved.is_list:
-        return [_coerce_simple_subclass_value(item, target_type) for item in value]
-
-    return _coerce_simple_subclass_value(value, target_type)
-
-
-def _coerce_simple_subclass_value(value: Any, target_type: type[Any]) -> Any:
-    if type(value) is target_type:
-        return value
-
-    if issubclass(target_type, UUID):
-        return target_type(str(value))
-
-    if issubclass(target_type, datetime):
-        return target_type(
-            value.year,
-            value.month,
-            value.day,
-            value.hour,
-            value.minute,
-            value.second,
-            value.microsecond,
-            tzinfo=value.tzinfo,
-            fold=value.fold,
-        )
-
-    if issubclass(target_type, date):
-        return target_type(
-            value.year,
-            value.month,
-            value.day,
-        )
-
-    if issubclass(target_type, time):
-        return target_type(
-            value.hour,
-            value.minute,
-            value.second,
-            value.microsecond,
-            tzinfo=value.tzinfo,
-            fold=value.fold,
-        )
-
-    if issubclass(target_type, timedelta):
-        return target_type(
-            days=value.days,
-            seconds=value.seconds,
-            microseconds=value.microseconds,
-        )
-
-    return target_type(value)
+    return transform(annotation)
 
 
 def is_base_table(obj: Any) -> TypeGuard[type[TableBase]]:

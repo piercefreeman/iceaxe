@@ -14,6 +14,7 @@ from iceaxe.base import (
     TableBase,
     UniqueConstraint,
 )
+from iceaxe.custom_typehints import get_simple_subclass_base_type
 from iceaxe.generics import (
     get_typevar_mapping,
     has_null_type,
@@ -51,7 +52,7 @@ from iceaxe.typing import (
     DATE_TYPES,
     JSON_WRAPPER_FALLBACK,
     PRIMITIVE_WRAPPER_TYPES,
-    get_db_storage_annotation,
+    resolve_typehint,
 )
 
 NodeYieldType = Union[DBObject, DBObjectPointer, "NodeDefinition"]
@@ -424,13 +425,23 @@ class DatabaseHandler:
             )
 
         annotation = remove_null_type(info.annotation)
-        storage_annotation, is_list = get_db_storage_annotation(annotation)
+        resolved_annotation = resolve_typehint(annotation)
+        storage_annotation = (
+            get_simple_subclass_base_type(resolved_annotation.runtime_type)
+            or resolved_annotation.runtime_type
+        )
+        is_list = resolved_annotation.is_list
 
         # Resolve the type of the column, if generic
         if isinstance(storage_annotation, TypeVar):
             typevar_map = get_typevar_mapping(table)
             storage_annotation = typevar_map[storage_annotation]
-            storage_annotation, is_list = get_db_storage_annotation(storage_annotation)
+            resolved_annotation = resolve_typehint(storage_annotation)
+            storage_annotation = (
+                get_simple_subclass_base_type(resolved_annotation.runtime_type)
+                or resolved_annotation.runtime_type
+            )
+            is_list = resolved_annotation.is_list
 
         # Should be prioritized in terms of MRO; StrEnums should be processed
         # before the str types

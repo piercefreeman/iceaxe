@@ -12,8 +12,9 @@ from pydantic import BaseModel, Field as PydanticField
 from pydantic.main import _model_construction
 from pydantic_core import PydanticUndefined
 
+from iceaxe.custom_typehints import wrap_simple_subclass_annotation
 from iceaxe.field import DBFieldClassDefinition, DBFieldInfo, Field
-from iceaxe.typing import normalize_simple_subclass_annotation
+from iceaxe.typing import transform_typehint
 
 
 @dataclass_transform(kw_only_default=True, field_specifiers=(PydanticField,))
@@ -59,7 +60,7 @@ class DBModelMetaclass(_model_construction.ModelMetaclass):
         if raw_annotations:
             namespace["__annotations__"] = {
                 key: (
-                    normalize_simple_subclass_annotation(annotation)
+                    transform_typehint(annotation, wrap_simple_subclass_annotation)
                     if not isinstance(annotation, str)
                     else annotation
                 )
