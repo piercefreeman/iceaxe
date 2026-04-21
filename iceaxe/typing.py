@@ -16,6 +16,7 @@ from typing import (
     Union,
     get_args,
     get_origin,
+    is_typeddict,
 )
 from uuid import UUID
 
@@ -138,6 +139,27 @@ def resolve_typehint(annotation: Any) -> ResolvedTypehint:
         runtime_type=unwrap_annotated(current),
         is_list=is_list,
     )
+
+
+def is_json_container_type(annotation: Any) -> bool:
+    """
+    Return whether an annotation represents a JSON container shape.
+
+    Iceaxe stores `dict[...]`, `list[...]`, plain `dict` / `list`, and
+    `TypedDict` values in JSON columns when `Field(is_json=True)` is specified.
+    This helper intentionally focuses on the container forms that need special
+    schema inference without trying to classify arbitrary JSON-serializable
+    scalar types.
+
+    """
+    annotation = unwrap_annotated(annotation)
+    if annotation in {dict, list}:
+        return True
+    if is_typeddict(annotation):
+        return True
+
+    origin = get_origin(annotation)
+    return origin in {dict, list}
 
 
 def transform_typehint(

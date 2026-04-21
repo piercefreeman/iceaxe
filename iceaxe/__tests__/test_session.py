@@ -1,7 +1,7 @@
 from contextlib import asynccontextmanager
 from enum import StrEnum
 from json import dumps as json_dumps, loads as json_loads
-from typing import Any, Type
+from typing import Any, Type, TypedDict
 from unittest.mock import AsyncMock, patch
 from uuid import UUID
 
@@ -726,6 +726,39 @@ async def test_pydantic_json_deserialization_from_database(
             payload=Preferences(theme="system", notifications=False),
         )
     ]
+
+
+@pytest.mark.asyncio
+async def test_typed_dict_json_round_trip(db_connection: DBConnection):
+    class ExampleOption(TypedDict):
+        key: str
+        label: str
+
+    class TypedDictJsonDemo(TableBase):
+        id: int | None = Field(primary_key=True, default=None)
+        options: list[ExampleOption] = Field(is_json=True)
+
+    await db_connection.conn.execute("DROP TABLE IF EXISTS typeddictjsondemo")
+    await create_all(db_connection, [TypedDictJsonDemo])
+
+    options = [
+        {"key": "option_a", "label": "Option A"},
+        {"key": "option_b", "label": "Option B"},
+    ]
+    demo = TypedDictJsonDemo(options=options)
+    await db_connection.insert([demo])
+
+    full_result = await db_connection.exec(
+        QueryBuilder().select(TypedDictJsonDemo).where(TypedDictJsonDemo.id == demo.id)
+    )
+    assert full_result == [TypedDictJsonDemo(id=demo.id, options=options)]
+
+    column_result = await db_connection.exec(
+        QueryBuilder()
+        .select(TypedDictJsonDemo.options)
+        .where(TypedDictJsonDemo.id == demo.id)
+    )
+    assert column_result == [options]
 
 
 @pytest.mark.asyncio
