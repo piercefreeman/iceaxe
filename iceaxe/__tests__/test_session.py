@@ -741,7 +741,7 @@ async def test_typed_dict_json_round_trip(db_connection: DBConnection):
     await db_connection.conn.execute("DROP TABLE IF EXISTS typeddictjsondemo")
     await create_all(db_connection, [TypedDictJsonDemo])
 
-    options = [
+    options: list[ExampleOption] = [
         {"key": "option_a", "label": "Option A"},
         {"key": "option_b", "label": "Option B"},
     ]
