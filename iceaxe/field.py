@@ -167,7 +167,20 @@ class DBFieldInfo(FieldInfo):
             db_kwargs["autoincrement"] = autoincrement
 
         kwargs = cast(DBFieldInputs, {**field_attributes, **db_kwargs})
-        return cls(**kwargs)
+        extended_field = cls(**kwargs)
+
+        # Preserve Pydantic's internal rebuild state so generic specializations can
+        # recreate inherited fields from their original annotations.
+        for attr_name in getattr(FieldInfo, "__slots__", ()):
+            value = getattr(field, attr_name)
+            if attr_name in {"metadata", "_attributes_set", "_qualifiers"}:
+                value = value.copy()
+            setattr(extended_field, attr_name, value)
+
+        extended_field._attributes_set.update(
+            {key: value for key, value in db_kwargs.items() if value is not _Unset}
+        )
+        return extended_field
 
     def to_db_value(self, value: Any):
         if self.is_json:
