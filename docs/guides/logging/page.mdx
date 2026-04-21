@@ -24,3 +24,12 @@ easier machine parsing and analysis of query performance.
 ```bash
 {"level": "DEBUG", "name": "iceaxe", "timestamp": "2021-10-14 15:00:00,000", "message": "SELECT * FROM users WHERE id = 1"}
 ```
+
+## Query failure context
+
+When a query fails, `DBConnection.exec()` raises `IceaxeQueryError`. The exception message includes
+the rendered SQL and bound variables, which makes debugging much easier even when debug logging is
+disabled.
+
+Iceaxe preserves the original asyncpg exception hierarchy, so you can still catch specific driver
+errors such as `asyncpg.UniqueViolationError` while benefiting from the extra query context.

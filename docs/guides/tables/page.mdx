@@ -107,3 +107,46 @@ print(person_1)
 person_2 = Person(name="John Doe", age=15)
 print(person_2)
 ```
+
+## Structured JSON fields
+
+`Field(is_json=True)` also supports structured values, including Pydantic models. Iceaxe will infer
+a JSON column for the field and deserialize rows back into the annotated Python type:
+
+```python
+from pydantic import BaseModel
+
+class Preferences(BaseModel):
+    theme: str
+    notifications: bool
+
+class Employee(TableBase):
+    id: int | None = Field(primary_key=True, default=None)
+    name: str
+    preferences: Preferences = Field(is_json=True)
+```
+
+When you insert, select, update, or refresh an `Employee`, the `preferences` attribute remains a
+`Preferences` instance instead of a raw `dict`. If you prefer `JSONB`, you can still override the
+storage type with `Field(is_json=True, explicit_type=ColumnType.JSONB)` after importing
+`ColumnType` from `iceaxe.sql_types`.
+
+## Simple scalar subclasses
+
+Iceaxe also accepts simple subclasses of built-in storage types. This is useful when you want
+domain-specific types without giving up ORM support:
+
+```python
+from uuid import UUID
+
+class EmployeeId(UUID):
+    pass
+
+class Employee(TableBase):
+    id: EmployeeId = Field(primary_key=True)
+    name: str
+```
+
+The value is stored using the base PostgreSQL type, but reads come back as `EmployeeId` instances
+for both full-model selects and direct column selects. This works for simple subclasses of
+`UUID`, `str`, `int`, `float`, `bool`, `bytes`, `date`, `time`, `datetime`, and `timedelta`.

@@ -73,6 +73,47 @@ migrate-apply = "myproject.cli:apply"
 migrate-rollback = "myproject.cli:rollback"
 ```
 
+## Automatic local schema sync
+
+For local development, `DBConnection.magic_migrate()` combines generation and application into a
+single call:
+
+```python
+await conn.magic_migrate("myproject")
+
+# Limit the sync to specific tables
+await conn.magic_migrate("myproject", models=[Employee, Office])
+
+# Add a message to the generated revision
+await conn.magic_migrate("myproject", message="Add office capacity column")
+```
+
+`magic_migrate()` will:
+
+- introspect the current database schema
+- generate a new migration file only when the schema actually changed
+- apply any pending migrations, including the one it just created
+
+This is a fast workflow for local branches and prototypes. Before merging to production, it is still
+better to review the generated migration files and commit the final revisions explicitly.
+
+## Ignoring externally managed tables
+
+If your database contains tables that Iceaxe should leave alone, you can exclude them during
+migration generation:
+
+```python
+await handle_generate(
+    PROJECT,
+    await get_connection(),
+    ignore_tables=["legacy_audit_log", "spatial_ref_sys"],
+)
+```
+
+Ignored tables are removed from both the in-memory model comparison and the live database
+introspection step. This is useful when your application shares a database with extensions,
+third-party tools, or manually managed tables.
+
 ## Generating migrations
 
 Let's say we currently have a simple Employee table that's defined in our

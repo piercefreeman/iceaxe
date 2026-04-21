@@ -56,6 +56,35 @@ are full Python objects; you can access and modify their attributes as you would
 other object. Once received, it's detached from the database connection unless you explicitly
 choose to save it. For more details on how to update data, see the page on [update statements](./inserts).
 
+## Single-row lookups
+
+If you want the first matching model directly instead of a list, call `.one()` on a full-model
+select:
+
+```python
+from iceaxe import NoObjectFound, select
+
+try:
+    employee = await conn.exec(
+        select(Employee)
+        .where(Employee.name == "Marcus Holloway")
+        .order_by(Employee.id, "ASC")
+        .one()
+    )
+except NoObjectFound:
+    employee = None
+```
+
+This is a convenience for the common "give me one model" path:
+
+- `.one()` only works for a single full table selection such as `select(Employee)`
+- It changes the return type from `list[Employee]` to `Employee`
+- It adds `LIMIT 1` to the generated SQL
+- If no rows match, `DBConnection.exec()` raises `NoObjectFound`
+
+`.one()` does not enforce uniqueness. If multiple rows match, it returns the first row from the
+query after ordering and filtering have been applied.
+
 ## NULL Comparisons and Column Comparisons
 
 When working with columns that might contain NULL values, you need to be careful about how you compare them.
@@ -363,4 +392,3 @@ query = select((
 ```
 
 The `alias` function allows you to map SQL results to typed Python values, while `func` provides type-safe SQL function calls. When combined, they enable you to write complex queries with proper type checking and automatic deserialization.
-
