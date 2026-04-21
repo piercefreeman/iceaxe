@@ -70,9 +70,11 @@ class DBModelMetaclass(_model_construction.ModelMetaclass):
         raw_kwargs = {**kwargs}
 
         mcs.is_constructing = True
-        autodetect = mcs._extract_kwarg(kwargs, "autodetect", True)
-        cls = super().__new__(mcs, name, bases, namespace, **kwargs)
-        mcs.is_constructing = False
+        try:
+            autodetect = mcs._extract_kwarg(kwargs, "autodetect", True)
+            cls = super().__new__(mcs, name, bases, namespace, **kwargs)
+        finally:
+            mcs.is_constructing = False
 
         # Allow future calls to subclasses / generic instantiations to reference the same
         # kwargs as the base class

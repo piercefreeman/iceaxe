@@ -16,9 +16,11 @@ from typing import (
     Union,
     get_args,
     get_origin,
-    is_typeddict,
+    is_typeddict as stdlib_is_typeddict,
 )
 from uuid import UUID
+
+from typing_extensions import is_typeddict as extensions_is_typeddict
 
 if TYPE_CHECKING:
     from iceaxe.alias_values import Alias
@@ -155,7 +157,7 @@ def is_json_container_type(annotation: Any) -> bool:
     annotation = unwrap_annotated(annotation)
     if annotation in {dict, list}:
         return True
-    if is_typeddict(annotation):
+    if stdlib_is_typeddict(annotation) or extensions_is_typeddict(annotation):
         return True
 
     origin = get_origin(annotation)

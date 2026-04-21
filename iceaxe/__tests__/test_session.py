@@ -1,7 +1,7 @@
 from contextlib import asynccontextmanager
 from enum import StrEnum
 from json import dumps as json_dumps, loads as json_loads
-from typing import Any, Type, TypedDict
+from typing import Any, Type
 from unittest.mock import AsyncMock, patch
 from uuid import UUID
 
@@ -9,6 +9,7 @@ import asyncpg
 import pytest
 from asyncpg.connection import Connection
 from pydantic import BaseModel
+from typing_extensions import TypedDict
 
 from iceaxe.__tests__.conf_models import (
     ArtifactDemo,

@@ -1,13 +1,14 @@
 import warnings
 from datetime import date, datetime, time, timedelta
 from enum import Enum, IntEnum, StrEnum
-from typing import Generic, Sequence, TypedDict, TypeVar
+from typing import Generic, Sequence, TypeVar
 from unittest.mock import ANY
 from uuid import UUID
 
 import pytest
 from pydantic import BaseModel, create_model
 from pydantic.fields import FieldInfo
+from typing_extensions import TypedDict
 
 from iceaxe import Field, TableBase
 from iceaxe.base import IndexConstraint, UniqueConstraint
