@@ -4,3 +4,18 @@ The `DBConnection` class manages all Postgres-Python interactions that actually
 affect the state of the database.
 
 ::: iceaxe.session.DBConnection
+
+---
+
+## Common Exceptions
+
+`DBConnection.exec()` adds a small amount of ORM-specific error handling on top of asyncpg:
+
+- `IceaxeQueryError` wraps failed queries with the SQL text and variables used for execution
+- `NoObjectFound` is raised by `.one()` queries when the database returns no rows
+
+::: iceaxe.exceptions.IceaxeQueryError
+
+---
+
+::: iceaxe.exceptions.NoObjectFound

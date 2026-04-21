@@ -62,6 +62,29 @@ class Person(TableBase):
     age: int
 ```
 
+Structured JSON values and lightweight scalar subclasses also work naturally in table definitions:
+
+```python
+from iceaxe import Field, TableBase
+from pydantic import BaseModel
+from uuid import UUID
+
+class PersonId(UUID):
+    pass
+
+class Preferences(BaseModel):
+    theme: str
+    notifications: bool
+
+class Person(TableBase):
+    id: PersonId = Field(primary_key=True)
+    preferences: Preferences = Field(is_json=True)
+```
+
+`Field(is_json=True)` will round-trip Pydantic models through a JSON column, and simple subclasses of
+types like `UUID`, `str`, `int`, `date`, and `datetime` are stored using their base Postgres type while
+being returned as their subclass in Python.
+
 Okay now you have a model. How do you interact with it?
 
 Databases are based on a few core primitives to insert data, update it, and fetch it out again.
@@ -105,6 +128,9 @@ For local development or side projects, you can use `magic_migrate` to automatic
 ```python
 await conn.magic_migrate("my_project")
 ```
+
+If you want to limit the sync to a subset of tables or label the generated revision, you can also pass
+`models=[...]` and `message="..."`.
 
 This will:
 1. Compare your current database schema against your model definitions
@@ -228,6 +254,28 @@ results = await conn.exec(query)
 ```
 
 As expected this will deliver results - and typehint - as a `list[tuple[int, FavoriteColor]]`
+
+For the common "fetch the first matching model or fail" case, use `.one()`:
+
+```python
+from iceaxe import NoObjectFound
+
+try:
+    person = await conn.exec(
+        select(Person)
+        .where(Person.id == 1)
+        .one()
+    )
+except NoObjectFound:
+    person = None
+```
+
+`.one()` only applies to a single full-model select like `select(Person)`. It adds `LIMIT 1`,
+returns a single `Person` instead of `list[Person]`, and raises `NoObjectFound` if the query
+returns no rows.
+
+When a query fails, Iceaxe raises `IceaxeQueryError` with the SQL text and variables attached to
+the exception message while still preserving the original asyncpg exception type.
 
 ## Production
 
