@@ -1,3 +1,4 @@
+from enum import StrEnum
 from typing import Annotated, Any, Generic, TypeVar, cast
 from uuid import UUID
 
@@ -6,6 +7,7 @@ from iceaxe.base import (
     TableBase,
 )
 from iceaxe.field import DBFieldInfo, Field
+from iceaxe.schemas.db_memory_serializer import DatabaseMemorySerializer
 
 
 class _AnnotatedDummy:
@@ -40,6 +42,28 @@ def test_not_autodetect_generic(clear_registry):
         pass
 
     assert DBModelMetaclass.get_registry() == [WillAutodetect]
+
+
+def test_generic_concrete_subclass_preserves_bound_annotations(clear_registry):
+    T = TypeVar("T", bound=StrEnum)
+
+    class MyEnum(StrEnum):
+        A = "A"
+
+    class GenericBase(TableBase, Generic[T], autodetect=False):
+        typed_value: T
+        user_id: UUID
+
+    class Concrete(GenericBase[MyEnum], TableBase):
+        pass
+
+    assert {
+        key: info.annotation for key, info in Concrete.get_client_fields().items()
+    } == {
+        "typed_value": MyEnum,
+        "user_id": UUID,
+    }
+    assert list(DatabaseMemorySerializer().delegate([Concrete]))
 
 
 def test_model_fields():
