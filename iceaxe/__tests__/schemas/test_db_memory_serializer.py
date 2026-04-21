@@ -8,6 +8,7 @@ from uuid import UUID
 import pytest
 from pydantic import BaseModel, create_model
 from pydantic.fields import FieldInfo
+from typing_extensions import TypedDict
 
 from iceaxe import Field, TableBase
 from iceaxe.base import IndexConstraint, UniqueConstraint
@@ -1656,3 +1657,27 @@ def test_pydantic_model_json_field(clear_all_database_objects):
 
     assert settings_column.column_type == ColumnType.JSON
     assert not settings_column.nullable
+
+
+def test_json_container_fields_use_json_column(clear_all_database_objects):
+    class ExampleOption(TypedDict):
+        key: str
+        label: str
+
+    class TestModel(TableBase):
+        id: int = Field(primary_key=True)
+        settings: dict = Field(is_json=True)
+        tags: list[str] = Field(is_json=True)
+        option: ExampleOption = Field(is_json=True)
+        options: list[ExampleOption] = Field(is_json=True)
+
+    migrator = DatabaseMemorySerializer()
+    db_objects = list(migrator.delegate([TestModel]))
+
+    columns = [obj for obj, _ in db_objects if isinstance(obj, DBColumn)]
+
+    for column_name in {"settings", "tags", "option", "options"}:
+        column = next(c for c in columns if c.column_name == column_name)
+        assert column.column_type == ColumnType.JSON
+        assert column.column_is_list is False
+        assert not column.nullable

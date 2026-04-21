@@ -2,6 +2,8 @@ from enum import StrEnum
 from typing import Annotated, Any, Generic, TypeVar, cast
 from uuid import UUID
 
+import pytest
+
 from iceaxe.base import (
     DBModelMetaclass,
     TableBase,
@@ -142,3 +144,22 @@ def test_model_fields_with_simple_uuid_subclass():
     assert isinstance(event.id, CustomUUID)
     assert isinstance(event.maybe_id, CustomUUID)
     assert all(isinstance(value, CustomUUID) for value in event.ids)
+
+
+def test_metaclass_resets_construction_state_after_model_error(clear_registry):
+    class BrokenType:
+        @classmethod
+        def __get_pydantic_core_schema__(cls, source_type, handler):
+            raise RuntimeError("boom")
+
+    with pytest.raises(RuntimeError, match="boom"):
+
+        class BrokenModel(TableBase, autodetect=False):
+            value: BrokenType
+
+    assert DBModelMetaclass.is_constructing is False
+
+    class WorkingModel(TableBase, autodetect=False):
+        id: int
+
+    assert cast(Any, WorkingModel).id.key == "id"

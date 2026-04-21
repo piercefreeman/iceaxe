@@ -50,8 +50,8 @@ from iceaxe.sql_types import enum_to_name
 from iceaxe.typing import (
     ALL_ENUM_TYPES,
     DATE_TYPES,
-    JSON_WRAPPER_FALLBACK,
     PRIMITIVE_WRAPPER_TYPES,
+    is_json_container_type,
     resolve_typehint,
 )
 
@@ -435,13 +435,25 @@ class DatabaseHandler:
         # Resolve the type of the column, if generic
         if isinstance(storage_annotation, TypeVar):
             typevar_map = get_typevar_mapping(table)
-            storage_annotation = typevar_map[storage_annotation]
-            resolved_annotation = resolve_typehint(storage_annotation)
+            annotation = typevar_map[storage_annotation]
+            resolved_annotation = resolve_typehint(annotation)
             storage_annotation = (
                 get_simple_subclass_base_type(resolved_annotation.runtime_type)
                 or resolved_annotation.runtime_type
             )
             is_list = resolved_annotation.is_list
+
+        # JSON-backed fields should remain JSON even when their annotation is a
+        # top-level list container such as `list[str]` or `list[TypedDict]`.
+        if info.is_json and (
+            is_type_compatible(annotation, BaseModel)
+            or is_json_container_type(annotation)
+            or is_type_compatible(storage_annotation, BaseModel)
+            or is_json_container_type(storage_annotation)
+        ):
+            return TypeDeclarationResponse(
+                primitive_type=ColumnType.JSON,
+            )
 
         # Should be prioritized in terms of MRO; StrEnums should be processed
         # before the str types
@@ -514,7 +526,7 @@ class DatabaseHandler:
                     f"Pydantic model fields must have Field(is_json=True) specified: {storage_annotation}\n"
                     f"Column: {table.__name__}.{key}"
                 )
-        elif is_type_compatible(storage_annotation, JSON_WRAPPER_FALLBACK):
+        elif is_json_container_type(storage_annotation):
             if info.is_json:
                 return TypeDeclarationResponse(
                     primitive_type=ColumnType.JSON,
