@@ -245,6 +245,7 @@ async def test_simple_db_serializer(
 async def test_db_serializer_ignores_postgres_not_null_constraints(
     db_connection: DBConnection,
     clear_all_database_objects,
+    postgres_server_version_num: int,
 ):
     await db_connection.conn.execute(
         """
@@ -269,10 +270,7 @@ async def test_db_serializer_ignores_postgres_not_null_constraints(
         DatabaseSerializer._unwrap_db_str(row["contype"]) for row in pg_constraint_rows
     }
 
-    server_version_value = await db_connection.conn.fetchval("SHOW server_version_num")
-    assert server_version_value is not None
-    server_version_num = int(server_version_value)
-    if server_version_num >= 180000:
+    if postgres_server_version_num >= 180000:
         assert "n" in pg_constraint_types
 
     db_serializer = DatabaseSerializer()

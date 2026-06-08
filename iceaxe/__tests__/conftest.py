@@ -197,6 +197,13 @@ async def clear_all_database_objects(db_connection: DBConnection):
     )
 
 
+@pytest_asyncio.fixture
+async def postgres_server_version_num(db_connection: DBConnection) -> int:
+    server_version_value = await db_connection.conn.fetchval("SHOW server_version_num")
+    assert server_version_value is not None
+    return int(server_version_value)
+
+
 @pytest.fixture
 def clear_registry():
     current_registry = DBModelMetaclass._registry
