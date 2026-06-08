@@ -29,6 +29,13 @@ class DatabaseSerializer:
 
     """
 
+    pg_constraint_type_map = {
+        "p": ConstraintType.PRIMARY_KEY,
+        "f": ConstraintType.FOREIGN_KEY,
+        "u": ConstraintType.UNIQUE,
+        "c": ConstraintType.CHECK,
+    }
+
     def __init__(self, ignore_tables: list[str] | None = None):
         # Internal tables used for migration management, shouldn't be managed in-memory and therefore
         # won't be mirrored by our DBMemorySerializer. We exclude them from this serialization lest there
@@ -51,6 +58,20 @@ class DatabaseSerializer:
             return bytes(value).decode()
 
         raise ValueError(f"Unexpected type for database value: {type(value)}")
+
+    def _pg_constraint_type(
+        self, value: str | bytes | bytearray | memoryview
+    ) -> ConstraintType | None:
+        contype = self._unwrap_db_str(value)
+        if contype == "n":
+            # PostgreSQL 18 reports NOT NULL as pg_constraint rows. Iceaxe
+            # serializes nullability from information_schema.columns instead.
+            return None
+
+        try:
+            return self.pg_constraint_type_map[contype]
+        except KeyError:
+            raise ValueError(f"Unknown constraint type: {value}") from None
 
     async def get_objects(self, connection: DBConnection):
         tables = []
@@ -156,18 +177,9 @@ class DatabaseSerializer:
         """
         result = await session.conn.fetch(query, table_name)
         for row in result:
-            contype = self._unwrap_db_str(row["contype"])
-            # Determine type
-            if contype == "p":
-                ctype = ConstraintType.PRIMARY_KEY
-            elif contype == "f":
-                ctype = ConstraintType.FOREIGN_KEY
-            elif contype == "u":
-                ctype = ConstraintType.UNIQUE
-            elif contype == "c":
-                ctype = ConstraintType.CHECK
-            else:
-                raise ValueError(f"Unknown constraint type: {row['contype']}")
+            ctype = self._pg_constraint_type(row["contype"])
+            if ctype is None:
+                continue
 
             columns = await self.fetch_constraint_columns(
                 session, row["conkey"], table_name

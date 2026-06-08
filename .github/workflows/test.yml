@@ -15,9 +15,10 @@ jobs:
       matrix:
         os: [ubuntu-latest]
         python-version: ["3.11", "3.12", "3.13"]
+        postgres-version: ["16", "17", "18"]
     services:
       postgres:
-        image: postgres:latest
+        image: postgres:${{ matrix.postgres-version }}
         env:
           POSTGRES_USER: iceaxe
           POSTGRES_PASSWORD: mysecretpassword
@@ -31,15 +32,16 @@ jobs:
           --health-retries 5
     steps:
       - uses: actions/checkout@v4
-      - name: Install uv and with python version ${{ matrix.python-version }}
+      - name: Install uv with Python ${{ matrix.python-version }}
         uses: astral-sh/setup-uv@v6.3.0
         with:
           enable-cache: false
           python-version: ${{ matrix.python-version }}
-      - name: Run tests
+      - name: Run tests on PostgreSQL ${{ matrix.postgres-version }}
         run: uv run pytest -v --continue-on-collection-errors
         env:
           ICEAXE_LOG_LEVEL: DEBUG
+          ICEAXE_POSTGRES_VERSION: ${{ matrix.postgres-version }}
 
   pydantic-matrix:
     runs-on: ubuntu-latest
@@ -70,7 +72,7 @@ jobs:
       matrix: ${{ fromJson(needs.pydantic-matrix.outputs.matrix) }}
     services:
       postgres:
-        image: postgres:latest
+        image: postgres:16
         env:
           POSTGRES_USER: iceaxe
           POSTGRES_PASSWORD: mysecretpassword
@@ -96,6 +98,7 @@ jobs:
           pytest -v --continue-on-collection-errors
         env:
           ICEAXE_LOG_LEVEL: DEBUG
+          ICEAXE_POSTGRES_VERSION: "16"
 
   lint:
     runs-on: ubuntu-latest
