@@ -1,4 +1,5 @@
 import logging
+import os
 
 import asyncpg
 import pytest
@@ -20,7 +21,9 @@ def docker_postgres():
     This allows running individual tests without needing Docker Compose.
     """
     # Create and start a PostgreSQL container
-    postgres_container = docker_helpers.PostgresContainer()
+    postgres_container = docker_helpers.PostgresContainer(
+        postgres_version=os.environ.get("ICEAXE_POSTGRES_VERSION", "16")
+    )
 
     # Start the container and yield connection details
     connection_info = postgres_container.start()

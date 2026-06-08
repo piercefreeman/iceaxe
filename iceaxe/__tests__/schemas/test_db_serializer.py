@@ -242,6 +242,63 @@ async def test_simple_db_serializer(
 
 
 @pytest.mark.asyncio
+async def test_db_serializer_ignores_postgres_not_null_constraints(
+    db_connection: DBConnection,
+    clear_all_database_objects,
+):
+    await db_connection.conn.execute(
+        """
+        CREATE TABLE pg18_not_null_model (
+            id SERIAL PRIMARY KEY,
+            required_value TEXT NOT NULL,
+            optional_value TEXT
+        );
+        """
+    )
+
+    pg_constraint_rows = await db_connection.conn.fetch(
+        """
+        SELECT c.contype
+        FROM pg_constraint c
+        INNER JOIN pg_class t ON c.conrelid = t.oid
+        WHERE t.relname = $1
+        """,
+        "pg18_not_null_model",
+    )
+    pg_constraint_types = {
+        DatabaseSerializer._unwrap_db_str(row["contype"]) for row in pg_constraint_rows
+    }
+
+    server_version_value = await db_connection.conn.fetchval("SHOW server_version_num")
+    assert server_version_value is not None
+    server_version_num = int(server_version_value)
+    if server_version_num >= 180000:
+        assert "n" in pg_constraint_types
+
+    db_serializer = DatabaseSerializer()
+    db_objects = []
+    async for values in db_serializer.get_objects(db_connection):
+        db_objects.append(values)
+
+    table_constraints = [
+        obj
+        for obj, _ in db_objects
+        if isinstance(obj, DBConstraint) and obj.table_name == "pg18_not_null_model"
+    ]
+    assert {constraint.constraint_name for constraint in table_constraints} == {
+        "pg18_not_null_model_pkey"
+    }
+
+    columns = {
+        obj.column_name: obj
+        for obj, _ in db_objects
+        if isinstance(obj, DBColumn) and obj.table_name == "pg18_not_null_model"
+    }
+    assert columns["required_value"].nullable is False
+    assert columns["optional_value"].nullable is True
+
+
+@pytest.mark.asyncio
 async def test_db_serializer_foreign_key(
     db_connection: DBConnection,
     clear_all_database_objects,
