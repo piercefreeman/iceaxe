@@ -153,6 +153,58 @@ query = select((PersonFavoriteColor.person_id, FavoriteColor)).join(
 )
 ```
 
+## Custom Identifiers
+
+Foreign keys usually point at columns that all share the same storage type,
+like `int` or `UUID`. That can make it easy to accidentally assign the wrong
+ID to the wrong field. An easy way to prevent this is to give each table's ID
+its own static type, often in a shared `identifiers.py` file:
+
+```python
+# identifiers.py
+from typing import NewType
+from uuid import UUID
+
+OfficeId = NewType("OfficeId", UUID)
+EmployeeId = NewType("EmployeeId", UUID)
+```
+
+NewType lets your static typechecking system treat OfficeId and EmployeeId as unique types, while
+the runtime behavior just falls back to UUID. This lets you use the same identifier type for the
+table's primary key and for any foreign key that references it:
+
+```python
+from uuid import UUID
+
+from iceaxe import TableBase, Field
+from myapp.identifiers import EmployeeId, OfficeId
+
+class Office(TableBase):
+    id: OfficeId = Field(primary_key=True)
+    name: str
+
+class Employee(TableBase):
+    id: EmployeeId = Field(primary_key=True)
+    name: str
+    office_id: OfficeId = Field(foreign_key="office.id")
+
+office = Office(
+    id=OfficeId(UUID("87654321-4321-6789-4321-678943216789")),
+    name="HQ",
+)
+employee = Employee(
+    id=EmployeeId(UUID("12345678-1234-5678-1234-567812345678")),
+    name="Alice",
+    office_id=office.id,
+)
+
+employee.office_id = employee.id  # type checker error
+```
+
+`OfficeId` and `EmployeeId` are still stored as UUID columns in Postgres, but
+static type checkers can now flag swapped assignments before they become
+relationship bugs.
+
 ## Composite Primary Keys and Foreign Key Constraints
 
 When working with foreign keys, it's important to understand how Iceaxe handles primary key constraints, especially when you have multiple fields marked as `primary_key=True`.
