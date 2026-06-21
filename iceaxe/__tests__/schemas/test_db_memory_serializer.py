@@ -1,7 +1,7 @@
 import warnings
 from datetime import date, datetime, time, timedelta
 from enum import Enum, IntEnum, StrEnum
-from typing import Generic, Sequence, TypeVar
+from typing import Generic, NewType, Sequence, TypeVar
 from unittest.mock import ANY
 from uuid import UUID
 
@@ -801,6 +801,36 @@ def test_simple_uuid_subclass_column_assignment(clear_all_database_objects):
                     nullable=False,
                 ),
             ],
+        ),
+    ]
+
+
+def test_uuid_newtype_column_assignment(clear_all_database_objects):
+    UserId = NewType("UserId", UUID)
+
+    class ExampleModel(TableBase):
+        id: UserId = Field(primary_key=True)
+        values: list[UserId]
+
+    columns = [
+        obj
+        for obj, _ in DatabaseMemorySerializer().delegate([ExampleModel])
+        if isinstance(obj, DBColumn)
+    ]
+    assert columns == [
+        DBColumn(
+            table_name="examplemodel",
+            column_name="id",
+            column_type=ColumnType.UUID,
+            column_is_list=False,
+            nullable=False,
+        ),
+        DBColumn(
+            table_name="examplemodel",
+            column_name="values",
+            column_type=ColumnType.UUID,
+            column_is_list=True,
+            nullable=False,
         ),
     ]
 

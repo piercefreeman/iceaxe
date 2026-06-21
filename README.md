@@ -62,28 +62,43 @@ class Person(TableBase):
     age: int
 ```
 
-Structured JSON values and lightweight scalar subclasses also work naturally in table definitions:
+Structured JSON values and per-model identifier types also work naturally in table definitions:
 
 ```python
-from iceaxe import Field, TableBase
-from pydantic import BaseModel
+from typing import NewType
 from uuid import UUID
 
-class PersonId(UUID):
-    pass
+from iceaxe import Field, TableBase
+from pydantic import BaseModel
+
+PersonId = NewType("PersonId", UUID)
+OrganizationId = NewType("OrganizationId", UUID)
 
 class Preferences(BaseModel):
     theme: str
     notifications: bool
 
+class Organization(TableBase):
+    id: OrganizationId = Field(primary_key=True)
+
 class Person(TableBase):
     id: PersonId = Field(primary_key=True)
+    organization_id: OrganizationId
     preferences: Preferences = Field(is_json=True)
+
+person_id = PersonId(UUID("12345678-1234-5678-1234-567812345678"))
+organization_id = OrganizationId(UUID("87654321-4321-6789-4321-678943216789"))
+preferences = Preferences(theme="dark", notifications=True)
+
+Person(id=person_id, organization_id=organization_id, preferences=preferences)
+Person(id=organization_id, organization_id=person_id, preferences=preferences)  # type checker error
 ```
 
-`Field(is_json=True)` will round-trip Pydantic models through a JSON column, and simple subclasses of
-types like `UUID`, `str`, `int`, `date`, and `datetime` are stored using their base Postgres type while
-being returned as their subclass in Python.
+`Field(is_json=True)` will round-trip Pydantic models through a JSON column. `NewType` identifiers
+are stored using their underlying Postgres type, so `PersonId` and `OrganizationId` are both UUID
+columns while static type checkers can still flag accidentally swapped IDs. Simple subclasses of
+types like `UUID`, `str`, `int`, `date`, and `datetime` are also stored using their base Postgres type
+while being returned as their subclass in Python.
 
 Okay now you have a model. How do you interact with it?
 
