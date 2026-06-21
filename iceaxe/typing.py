@@ -69,6 +69,12 @@ def unwrap_annotated(annotation: Any) -> Any:
     return annotation
 
 
+def unwrap_newtype(annotation: Any) -> Any:
+    while hasattr(annotation, "__supertype__"):
+        annotation = annotation.__supertype__
+    return annotation
+
+
 def get_optional_inner(annotation: Any) -> Any | None:
     if not is_union_type(annotation):
         return None
@@ -123,7 +129,7 @@ def resolve_typehint(annotation: Any) -> ResolvedTypehint:
     is_list = False
 
     while True:
-        current = unwrap_annotated(current)
+        current = unwrap_newtype(unwrap_annotated(current))
 
         optional_inner = get_optional_inner(current)
         if optional_inner is not None:
@@ -138,7 +144,7 @@ def resolve_typehint(annotation: Any) -> ResolvedTypehint:
         break
 
     return ResolvedTypehint(
-        runtime_type=unwrap_annotated(current),
+        runtime_type=unwrap_newtype(unwrap_annotated(current)),
         is_list=is_list,
     )
 

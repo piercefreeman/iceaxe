@@ -1,9 +1,10 @@
 from enum import StrEnum
-from typing import Annotated, Any, Generic, TypeVar, cast
+from typing import Annotated, Any, Generic, NewType, TypeVar, cast
 from uuid import UUID
 
 import pytest
 
+from iceaxe.__tests__.helpers import pyright_raises
 from iceaxe.base import (
     DBModelMetaclass,
     TableBase,
@@ -144,6 +145,23 @@ def test_model_fields_with_simple_uuid_subclass():
     assert isinstance(event.id, CustomUUID)
     assert isinstance(event.maybe_id, CustomUUID)
     assert all(isinstance(value, CustomUUID) for value in event.ids)
+
+
+def test_uuid_newtype_ids_are_typechecked():
+    UserId = NewType("UserId", UUID)
+    OrganizationId = NewType("OrganizationId", UUID)
+
+    class User(TableBase, autodetect=False):
+        id: UserId = Field(primary_key=True)
+        organization_id: OrganizationId
+
+    raw_id = UUID("12345678-1234-5678-1234-567812345678")
+    user_id = UserId(raw_id)
+    organization_id = OrganizationId(raw_id)
+
+    User(id=user_id, organization_id=organization_id)
+    with pyright_raises("reportArgumentType"):
+        User(id=organization_id, organization_id=user_id)  # type: ignore
 
 
 def test_metaclass_resets_construction_state_after_model_error(clear_registry):
