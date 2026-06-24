@@ -51,7 +51,6 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "iceaxe.mountaineer.*"
-# ponytail: optional integration deps stay out of default dev env.
 ignore_errors = true
 
 [tool.pydantic-mypy]
