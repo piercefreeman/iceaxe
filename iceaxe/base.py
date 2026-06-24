@@ -58,14 +58,20 @@ class DBModelMetaclass(_model_construction.ModelMetaclass):
         namespace = dict(namespace)
         raw_annotations = namespace.get("__annotations__", {})
         if raw_annotations:
-            namespace["__annotations__"] = {
-                key: (
-                    transform_typehint(annotation, wrap_simple_subclass_annotation)
-                    if not isinstance(annotation, str)
-                    else annotation
-                )
-                for key, annotation in raw_annotations.items()
-            }
+            namespace["__annotations__"] = mcs._wrap_simple_subclass_annotations(
+                raw_annotations
+            )
+
+        annotate_func = namespace.get("__annotate_func__")
+        if annotate_func is not None:
+
+            def __annotate_func__(format: Any) -> Any:
+                annotations = annotate_func(format)
+                if not isinstance(annotations, dict):
+                    return annotations
+                return mcs._wrap_simple_subclass_annotations(annotations)
+
+            namespace["__annotate_func__"] = __annotate_func__
 
         raw_kwargs = {**kwargs}
 
@@ -130,6 +136,19 @@ class DBModelMetaclass(_model_construction.ModelMetaclass):
                     field_definition=self.model_fields[key],
                 )
             raise
+
+    @classmethod
+    def _wrap_simple_subclass_annotations(
+        cls, annotations: dict[str, Any]
+    ) -> dict[str, Any]:
+        return {
+            key: (
+                transform_typehint(annotation, wrap_simple_subclass_annotation)
+                if not isinstance(annotation, str)
+                else annotation
+            )
+            for key, annotation in annotations.items()
+        }
 
     @classmethod
     def get_registry(cls) -> list[Type["TableBase"]]:
