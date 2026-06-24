@@ -14,7 +14,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]
-        python-version: ["3.11", "3.12", "3.13"]
+        python-version: ["3.11", "3.12", "3.13", "3.14", "3.15"]
         postgres-version: ["16", "17", "18"]
     services:
       postgres:
@@ -202,7 +202,8 @@ jobs:
         uses: pypa/cibuildwheel@v3.0.0
         env:
           CIBW_ARCHS_LINUX: x86_64 aarch64
-          CIBW_BUILD: cp311-* cp312-* cp313-*
+          CIBW_BUILD: cp311-* cp312-* cp313-* cp314-* cp315-*
+          CIBW_ENABLE: cpython-prerelease
           CIBW_SKIP: "*-musllinux*"
           CIBW_MANYLINUX_AARCH64_IMAGE: manylinux2014
           CIBW_MANYLINUX_X86_64_IMAGE: manylinux2014

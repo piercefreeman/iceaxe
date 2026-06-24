@@ -15,9 +15,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "docker>=7.1.0",
-    "mountaineer>=0.8.0",
     "mypy>=1.15.0",
-    "pydantic>=2,<2.11",
     "pyinstrument>=5.0.1",
     "pyright>=1.1.396",
     "pytest>=8.3.5",
@@ -39,6 +37,7 @@ include = ["iceaxe/*.pyx"]
 [tool.pyright]
 venvPath = "."
 venv = ".venv"
+exclude = ["iceaxe/mountaineer"]
 
 [tool.mypy]
 warn_return_any = true
@@ -49,6 +48,10 @@ plugins = ["pydantic.mypy"]
 [[tool.mypy.overrides]]
 module = "asyncpg.*"
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "iceaxe.mountaineer.*"
+ignore_errors = true
 
 [tool.pydantic-mypy]
 init_forbid_extra = true

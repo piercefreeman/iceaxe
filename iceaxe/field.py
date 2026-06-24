@@ -42,7 +42,7 @@ class DBFieldInputs(_FieldInfoInputs, total=False):
     explicit_type: ColumnType | None
 
 
-class DBFieldInfo(FieldInfo):
+class DBFieldInfo(FieldInfo):  # type: ignore[misc]
     """
     Extended field information for database fields, building upon Pydantic's FieldInfo.
     This class adds database-specific attributes and functionality for field configuration
