@@ -13,7 +13,7 @@ from typing import (
 )
 
 from pydantic import Field as PydanticField, TypeAdapter
-from pydantic.fields import FieldInfo, _FieldInfoInputs
+from pydantic.fields import FieldInfo, _FromFieldInfoInputs
 from pydantic_core import PydanticUndefined
 
 from iceaxe.comparison import ComparisonBase
@@ -30,7 +30,10 @@ P = ParamSpec("P")
 _Unset: Any = PydanticUndefined
 
 
-class DBFieldInputs(_FieldInfoInputs, total=False):
+# Pydantic's _FieldInfoInputs was _FromFieldInfoInputs plus `default` until
+# 2.14 removed it; _FromFieldInfoInputs exists from 2.0 on.
+class DBFieldInputs(_FromFieldInfoInputs, total=False):
+    default: Any
     primary_key: bool
     autoincrement: bool
     postgres_config: PostgresFieldBase | None
