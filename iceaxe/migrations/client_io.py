@@ -29,12 +29,16 @@ def fetch_migrations(migration_base: Path):
                 module = module_from_spec(spec)
                 sys.modules[module_name] = module
                 spec.loader.exec_module(module)
+                # Only revisions defined in this file. A migration that imports
+                # another one (to reuse its up(), say) would otherwise register
+                # that revision a second time.
                 migrations.extend(
                     attribute()
                     for attribute_name in dir(module)
                     if isinstance(attribute := getattr(module, attribute_name), type)
                     and issubclass(attribute, MigrationRevisionBase)
                     and attribute is not MigrationRevisionBase
+                    and attribute.__module__ == module.__name__
                 )
     return migrations
 
