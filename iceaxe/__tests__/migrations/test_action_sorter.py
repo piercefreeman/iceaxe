@@ -50,7 +50,7 @@ def test_duplicate_dependencies(include_dependency_node):
     A = MockNode(name="A")
     B = MockNode(name="B")
     C = MockNode(name="C")
-    graph = {C: [B, B, A, A], B: [A, A]}
+    graph: dict[DBObject, list[DBObject]] = {C: [B, B, A, A], B: [A, A]}
     if include_dependency_node:
         graph[A] = []
 
