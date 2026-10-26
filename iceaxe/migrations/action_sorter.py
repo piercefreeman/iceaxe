@@ -21,7 +21,7 @@ class ActionTopologicalSorter:
         self.nodes = set(graph.keys())
 
         for node, dependencies in list(graph.items()):
-            for dep in dependencies:
+            for dep in dict.fromkeys(dependencies):
                 self.in_degree[node] += 1
                 if dep not in self.nodes:
                     self.nodes.add(dep)
