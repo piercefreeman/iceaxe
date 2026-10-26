@@ -139,26 +139,28 @@ class PostgresContainer:
                     logger.warning(f"Container status: {container.status}")
                     return False
 
-                # Try to connect to PostgreSQL
-                conn = socket.create_connection(("localhost", self.port), timeout=1)
-                conn.close()
-                # Wait a bit more to ensure PostgreSQL is fully initialized
-                time.sleep(2)
-                logger.info(f"PostgreSQL container is ready after {i + 1} attempt(s)")
-                return True
-            except (socket.error, ConnectionRefusedError) as e:
-                if i == max_retries - 1:
-                    logger.warning(
-                        f"Failed to connect after {max_retries} attempts: {e}"
+                # TCP excludes PostgreSQL's temporary initialization server.
+                readiness = container.exec_run(
+                    [
+                        "pg_isready",
+                        "-h",
+                        "127.0.0.1",
+                        "-U",
+                        self.pg_user,
+                        "-d",
+                        self.pg_db,
+                    ]
+                )
+                if readiness.exit_code == 0:
+                    logger.info(
+                        f"PostgreSQL container is ready after {i + 1} attempt(s)"
                     )
-                    return False
-                time.sleep(retry_interval)
+                    return True
             except Exception as e:
                 logger.warning(f"Unexpected error checking container readiness: {e}")
-                if i == max_retries - 1:
-                    return False
-                time.sleep(retry_interval)
+            time.sleep(retry_interval)
 
+        logger.warning(f"PostgreSQL was not ready after {max_retries} attempts")
         return False
 
     def stop(self) -> None:

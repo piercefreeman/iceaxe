@@ -45,6 +45,18 @@ def test_simple_dag():
     assert list(result.keys()) == [A, C, B, D]
 
 
+@pytest.mark.parametrize("include_dependency_node", [True, False])
+def test_duplicate_dependencies(include_dependency_node):
+    A = MockNode(name="A")
+    B = MockNode(name="B")
+    C = MockNode(name="C")
+    graph: dict[DBObject, list[DBObject]] = {C: [B, B, A, A], B: [A, A]}
+    if include_dependency_node:
+        graph[A] = []
+
+    assert ActionTopologicalSorter(graph).sort() == [A, B, C]
+
+
 def test_disconnected_graph():
     A = MockNode(name="A")
     B = MockNode(name="B")
