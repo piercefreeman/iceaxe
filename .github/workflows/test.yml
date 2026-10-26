@@ -199,7 +199,7 @@ jobs:
         run: uv build --sdist
 
       - name: Build wheels
-        uses: pypa/cibuildwheel@v3.0.0
+        uses: pypa/cibuildwheel@v4.3.4
         env:
           CIBW_ARCHS_LINUX: x86_64 aarch64
           CIBW_BUILD: cp311-* cp312-* cp313-* cp314-* cp315-*
