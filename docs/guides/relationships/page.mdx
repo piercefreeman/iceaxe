@@ -157,8 +157,9 @@ query = select((PersonFavoriteColor.person_id, FavoriteColor)).join(
 
 Foreign keys usually point at columns that all share the same storage type,
 like `int` or `UUID`. That can make it easy to accidentally assign the wrong
-ID to the wrong field. An easy way to prevent this is to give each table's ID
-its own static type, often in a shared `identifiers.py` file:
+ID to the wrong field. Prefer `NewType` when you want each table's ID to have
+its own static type without adding a new runtime object. Define these types
+in a shared `identifiers.py` file:
 
 ```python
 # identifiers.py
@@ -169,8 +170,8 @@ OfficeId = NewType("OfficeId", UUID)
 EmployeeId = NewType("EmployeeId", UUID)
 ```
 
-NewType lets your static typechecking system treat OfficeId and EmployeeId as unique types, while
-the runtime behavior just falls back to UUID. This lets you use the same identifier type for the
+`NewType` lets your static type checker treat `OfficeId` and `EmployeeId` as distinct types, while
+runtime values remain UUIDs. Use the same identifier type for the
 table's primary key and for any foreign key that references it:
 
 ```python
@@ -204,6 +205,36 @@ employee.office_id = employee.id  # type checker error
 `OfficeId` and `EmployeeId` are still stored as UUID columns in Postgres, but
 static type checkers can now flag swapped assignments before they become
 relationship bugs.
+
+### Choosing an identifier type
+
+Use `NewType("OfficeId", UUID)` for IDs whose distinction matters to static type checking.
+It returns the existing value unchanged:
+
+```python
+raw_id = UUID("87654321-4321-6789-4321-678943216789")
+office_id = OfficeId(raw_id)
+
+assert office_id is raw_id
+assert isinstance(office_id, UUID)
+```
+
+This avoids allocating a separate ID object for each selected value. Iceaxe still runs normal
+Pydantic validation when constructing table models, including UUID parsing and your field and
+model validators. `OfficeId(value)` itself does not parse or validate input; use `UUID(text)`
+to parse a string before wrapping it, as in the examples above.
+
+Use a [UUID subclass](/iceaxe/guides/tables#simple-scalar-subclasses) when you need a distinct
+runtime class, such as for `isinstance` checks or custom methods. To return that class, Iceaxe
+must reconstruct each UUID supplied by the database driver as the requested subclass. This
+adds conversion and allocation work for both full-model and direct column selects, which can
+be significant for large result sets with several ID columns. Other supported scalar subclasses
+also incur conversion work.
+
+Changing a UUID subclass to `NewType` preserves UUID storage in PostgreSQL, but changes the
+Python runtime behavior. `NewType` does not provide subclass methods or run a subclass constructor,
+and `isinstance(value, OfficeId)` raises `TypeError`. Check callers that rely on those behaviors
+before switching. A plain `UUID` field is sufficient when you do not need distinct ID types.
 
 ## Composite Primary Keys and Foreign Key Constraints
 

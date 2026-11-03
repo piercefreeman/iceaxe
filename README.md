@@ -96,9 +96,14 @@ Person(id=organization_id, organization_id=person_id, preferences=preferences)  
 
 `Field(is_json=True)` will round-trip Pydantic models through a JSON column. `NewType` identifiers
 are stored using their underlying Postgres type, so `PersonId` and `OrganizationId` are both UUID
-columns while static type checkers can still flag accidentally swapped IDs. Simple subclasses of
-types like `UUID`, `str`, `int`, `date`, and `datetime` are also stored using their base Postgres type
-while being returned as their subclass in Python.
+columns while static type checkers can still flag accidentally swapped IDs.
+
+Prefer `NewType` for identifiers used only for static type checking: values remain ordinary UUIDs,
+avoiding subclass reconstruction for every selected ID while retaining normal Pydantic model
+validation. Simple subclasses of types like `UUID`, `str`, `int`, `date`, and `datetime` are also
+supported when you need a distinct runtime class. Reads return subclass instances, which adds
+conversion and allocation work. See [choosing an identifier type](docs/guides/relationships/page.mdx#choosing-an-identifier-type)
+for the performance and runtime tradeoffs.
 
 Okay now you have a model. How do you interact with it?
 

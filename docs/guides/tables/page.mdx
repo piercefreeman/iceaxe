@@ -131,10 +131,32 @@ When you insert, select, update, or refresh an `Employee`, the `preferences` att
 storage type with `Field(is_json=True, explicit_type=ColumnType.JSONB)` after importing
 `ColumnType` from `iceaxe.sql_types`.
 
+## Typed identifiers
+
+Prefer `NewType` for identifiers that should be distinct to a static type checker:
+
+```python
+from typing import NewType
+from uuid import UUID
+
+from iceaxe import Field, TableBase
+
+EmployeeId = NewType("EmployeeId", UUID)
+
+class Employee(TableBase):
+    id: EmployeeId = Field(primary_key=True)
+    name: str
+```
+
+The column is stored as a PostgreSQL UUID, and values remain UUID objects in Python. This avoids
+reconstructing a subclass for every selected ID while retaining normal Pydantic model validation.
+See [choosing an identifier type](/iceaxe/guides/relationships#choosing-an-identifier-type) for
+primary and foreign key examples and the runtime differences between `NewType` and subclasses.
+
 ## Simple scalar subclasses
 
-Iceaxe also accepts simple subclasses of built-in storage types. This is useful when you want
-domain-specific types without giving up ORM support:
+Iceaxe also accepts simple subclasses of built-in storage types. Use these when you need a
+distinct runtime class, such as for custom methods or `isinstance` checks:
 
 ```python
 from uuid import UUID
@@ -149,4 +171,7 @@ class Employee(TableBase):
 
 The value is stored using the base PostgreSQL type, but reads come back as `EmployeeId` instances
 for both full-model selects and direct column selects. This works for simple subclasses of
-`UUID`, `str`, `int`, `float`, `bool`, `bytes`, `date`, `time`, `datetime`, and `timedelta`.
+`UUID`, `str`, `int`, `float`, `bytes`, `date`, `time`, `datetime`, and `timedelta`.
+
+Reconstructing these subclasses adds work for each selected value. For identifiers used only
+for static type checking, prefer `NewType` as shown above, especially when reading large result sets.
