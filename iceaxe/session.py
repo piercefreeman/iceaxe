@@ -5,6 +5,7 @@ from inspect import isclass
 from math import ceil
 from typing import (
     Any,
+    Callable,
     Literal,
     ParamSpec,
     Sequence,
@@ -17,7 +18,8 @@ from typing import (
 import asyncpg
 from typing_extensions import TypeVarTuple
 
-from iceaxe.base import DBFieldClassDefinition, DBModelMetaclass, TableBase
+from iceaxe.base import DBFieldClassDefinition, DBFieldInfo, DBModelMetaclass, TableBase
+from iceaxe.custom_typehints import get_simple_subclass_converter
 from iceaxe.exceptions import NoObjectFound, wrap_query_error
 from iceaxe.logging import LOGGER
 from iceaxe.modifications import ModificationTracker
@@ -236,29 +238,30 @@ class DBConnection:
         the existing fast path.
 
         """
-        column_cast_indices: list[int] = []
+        column_casts: list[tuple[int, Callable[[Any], Any]]] = []
         for index, raw_value in enumerate(select_raw):
             if is_column(raw_value) and not raw_value.field_definition.is_json:
-                column_cast_indices.append(index)
+                field = raw_value.field_definition
+                if type(field).from_db_value is not DBFieldInfo.from_db_value:
+                    converter = field.from_db_value
+                else:
+                    converter = get_simple_subclass_converter(
+                        field.annotation, to_db=False
+                    )
+                if converter is not None:
+                    column_casts.append((index, converter))
 
-        if not column_cast_indices:
+        if not column_casts:
             return results
 
-        for result_index, row in enumerate(results):
-            if len(select_raw) == 1:
-                raw_column = cast(DBFieldClassDefinition[Any], select_raw[0])
-                results[result_index] = raw_column.field_definition.from_db_value(row)
-                continue
+        if len(select_raw) == 1:
+            converter = column_casts[0][1]
+            return [converter(row) for row in results]
 
+        for result_index, row in enumerate(results):
             row_values = list(cast(tuple[Any, ...], row))
-            for column_index in column_cast_indices:
-                raw_column = cast(
-                    DBFieldClassDefinition[Any],
-                    select_raw[column_index],
-                )
-                row_values[column_index] = raw_column.field_definition.from_db_value(
-                    row_values[column_index]
-                )
+            for column_index, converter in column_casts:
+                row_values[column_index] = converter(row_values[column_index])
             results[result_index] = tuple(row_values)
 
         return results

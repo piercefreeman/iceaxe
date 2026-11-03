@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime, time, timedelta
 from enum import Enum
 from inspect import isclass
-from typing import Annotated, Any, Literal, assert_never, get_args, get_origin
+from typing import Annotated, Any, Callable, Literal, assert_never, get_args, get_origin
 from uuid import UUID
 
 from pydantic import GetCoreSchemaHandler
@@ -71,6 +71,7 @@ class SimpleSubclassAnnotation:
     def __init__(self, subtype: type[Any], base_type: type[Any]):
         self.subtype = subtype
         self.base_type = base_type
+        self._cast_value = _get_single_subclass_converter(subtype)
 
     def __get_pydantic_core_schema__(
         self,
@@ -82,9 +83,6 @@ class SimpleSubclassAnnotation:
             self._cast_value,
             schema,
         )
-
-    def _cast_value(self, value: Any):
-        return coerce_single_subclass_value(value, self.subtype)
 
 
 def wrap_simple_subclass_annotation(annotation: Any) -> Any:
@@ -188,63 +186,96 @@ def convert_simple_subclass_value(value: Any, annotation: Any, *, to_db: bool) -
     if value is None:
         return None
 
+    converter = get_simple_subclass_converter(annotation, to_db=to_db)
+    return converter(value) if converter is not None else value
+
+
+def get_simple_subclass_converter(
+    annotation: Any, *, to_db: bool
+) -> Callable[[Any], Any] | None:
+    """Resolve field coercion once, before processing a batch of values."""
     resolved = resolve_typehint(annotation)
     storage_type = get_simple_subclass_base_type(resolved.runtime_type)
     if storage_type is None:
-        return value
+        return None
 
     target_type = storage_type if to_db else resolved.runtime_type
-    if resolved.is_list:
-        return [coerce_single_subclass_value(item, target_type) for item in value]
+    coerce = _get_single_subclass_converter(target_type)
 
-    return coerce_single_subclass_value(value, target_type)
+    def convert(value: Any) -> Any:
+        if value is None:
+            return None
+        if resolved.is_list:
+            return [coerce(item) for item in value]
+        return coerce(value)
+
+    return convert
 
 
 def coerce_single_subclass_value(value: Any, target_type: type[Any]) -> Any:
     if type(value) is target_type:
         return value
 
+    return _get_single_subclass_converter(target_type)(value)
+
+
+def _get_single_subclass_converter(target_type: type[Any]) -> Callable[[Any], Any]:
     kind = get_simple_subclass_kind(target_type)
     if kind is None:
         raise TypeError(f"Unsupported simple subclass target type: {target_type}")
 
-    match kind:
-        case "uuid":
-            return target_type(str(value))
-        case "datetime":
-            return target_type(
-                value.year,
-                value.month,
-                value.day,
-                value.hour,
-                value.minute,
-                value.second,
-                value.microsecond,
-                tzinfo=value.tzinfo,
-                fold=value.fold,
-            )
-        case "date":
-            return target_type(
-                value.year,
-                value.month,
-                value.day,
-            )
-        case "time":
-            return target_type(
-                value.hour,
-                value.minute,
-                value.second,
-                value.microsecond,
-                tzinfo=value.tzinfo,
-                fold=value.fold,
-            )
-        case "timedelta":
-            return target_type(
-                days=value.days,
-                seconds=value.seconds,
-                microseconds=value.microseconds,
-            )
-        case "bytes" | "str" | "int" | "float" | "bool":
-            return target_type(value)
-        case unexpected:
-            assert_never(unexpected)
+    # Custom constructors may accept only strings or apply their own validation.
+    uuid_from_int = (
+        kind == "uuid"
+        and target_type.__init__ is UUID.__init__
+        and target_type.__new__ is UUID.__new__
+    )
+
+    def coerce(value: Any) -> Any:
+        if type(value) is target_type:
+            return value
+
+        match kind:
+            case "uuid":
+                if uuid_from_int and isinstance(value, UUID):
+                    return target_type(int=value.int)
+                return target_type(str(value))
+            case "datetime":
+                return target_type(
+                    value.year,
+                    value.month,
+                    value.day,
+                    value.hour,
+                    value.minute,
+                    value.second,
+                    value.microsecond,
+                    tzinfo=value.tzinfo,
+                    fold=value.fold,
+                )
+            case "date":
+                return target_type(
+                    value.year,
+                    value.month,
+                    value.day,
+                )
+            case "time":
+                return target_type(
+                    value.hour,
+                    value.minute,
+                    value.second,
+                    value.microsecond,
+                    tzinfo=value.tzinfo,
+                    fold=value.fold,
+                )
+            case "timedelta":
+                return target_type(
+                    days=value.days,
+                    seconds=value.seconds,
+                    microseconds=value.microseconds,
+                )
+            case "bytes" | "str" | "int" | "float" | "bool":
+                return target_type(value)
+            case unexpected:
+                assert_never(unexpected)
+
+    return coerce
