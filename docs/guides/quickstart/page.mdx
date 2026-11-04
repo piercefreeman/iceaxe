@@ -27,9 +27,8 @@ class Person(TableBase):
     age: int
 ```
 
-TableBase is a subclass of Pydantic's `BaseModel`, so you get all of the validation and Field customization
-out of the box. We provide our own `Field` constructor that adds database-specific configuration. For instance, to make the
-`id` field a primary key / auto-incrementing you can do:
+`TableBase` inherits Pydantic's validation and field customization. Iceaxe's
+`Field` adds database options, such as marking `id` as the primary key:
 
 ```python
 from iceaxe import Field
@@ -40,11 +39,8 @@ class Person(TableBase):
     age: int
 ```
 
-Okay now you have a model. How do you interact with it?
-
-Databases are based on a few core primitives to insert data, update it, and fetch it out again.
-To do so you'll need a _database connection_, which is a connection over the network from your code
-to your Postgres database. The `DBConnection` is the core class for all ORM actions against the database.
+To read and write rows, connect to Postgres with asyncpg and wrap the connection
+in Iceaxe's `DBConnection`:
 
 ```python
 from iceaxe import DBConnection
@@ -61,9 +57,8 @@ conn = DBConnection(
 )
 ```
 
-The Person class currently just lives in memory. To back it with a full
-database table, we can run raw SQL or run a [migration](/iceaxe/guides/migrations) to
-add it automatically:
+Defining `Person` does not create a database table. Create it with SQL, as
+below, or generate a [migration](/iceaxe/guides/migrations):
 
 ```python
 await conn.conn.execute(
@@ -79,7 +74,7 @@ await conn.conn.execute(
 
 ### Inserting Data
 
-Instantiate object classes as you normally do:
+Create `Person` objects, then pass them to `insert` to save them:
 
 ```python
 people = [
@@ -93,20 +88,20 @@ print(people[0].id) # 1
 print(people[1].id) # 2
 ```
 
-Because we're using an auto-incrementing primary key, the `id` field will be populated after the insert.
-Iceaxe will automatically update the object in place with the newly assigned value.
+Postgres assigns each row an auto-incrementing ID. Iceaxe writes that ID back
+to the same Python object after the insert.
 
 ### Updating data
 
-Now that we have these lovely people, let's modify them.
+Change Alice's name on the Python object:
 
 ```python
 person = people[0]
 person.name = "Blice"
 ```
 
-Right now, we have a Python object that's out of state with the database. But that's often okay. We can inspect it
-and further write logic - it's fully decoupled from the database.
+The database still holds the old name. You can inspect or validate your changes
+before saving them:
 
 ```python
 def ensure_b_letter(person: Person):
@@ -116,13 +111,14 @@ def ensure_b_letter(person: Person):
 ensure_b_letter(person)
 ```
 
-To sync the values back to the database, we can call `update`:
+Call `update` to save the changed fields:
 
 ```python
 await conn.update([person])
 ```
 
-If we were to query the database directly, we see that the name has been updated:
+If another process updated Alice's age to 31 in the meantime, the database now
+contains:
 
 ```
 id | name  | age
@@ -132,16 +128,13 @@ id | name  | age
   3 | Charlie | 50
 ```
 
-But no other fields have been touched. This lets a potentially concurrent process
-modify `Alice`'s record - say, updating the age to 31. By the time we update the data, we'll
-change the name but nothing else. Under the hood we do this by tracking the fields that
-have been modified in-memory and creating a targeted UPDATE to modify only those values.
+Our update changed only `name`, so it preserved the other process's age change.
+Iceaxe tracks fields modified in memory and includes only those fields in the
+`UPDATE` statement.
 
 ### Selecting data
 
-To select data, we can use a `QueryBuilder`. For a shortcut to `select` query functions,
-you can also just import select directly. This method takes the desired value parameters
-and returns a list of the desired objects.
+Use `select` to build a query, then `conn.exec` to execute it:
 
 ```python
 from iceaxe import select
@@ -150,19 +143,20 @@ query = select(Person).where(Person.name == "Blice", Person.age > 25)
 results = await conn.exec(query)
 ```
 
-If we inspect the typing of `results`, we see that it's a `list[Person]` objects. This matches
-the typehint of the `select` function. You can also target columns directly:
+`results` is typed as `list[Person]`. To fetch only the columns you need, select
+them as a tuple:
 
 ```python
 query = select((Person.id, Person.name)).where(Person.age > 25)
 results = await conn.exec(query)
 ```
 
-This will return a list of tuples, where each tuple is the id and name of the person: `list[tuple[int, str]]`.
+The result type becomes `list[tuple[int, str]]`: each tuple contains an ID and a name.
 
-We support most of the common SQL operations. Just like the results, these are typehinted
-to their proper types as well. Static typecheckers and your IDE will throw an error if you try to compare
-a string column to an integer, for instance. A more complex example of a query:
+Query operations are typed too, so your type checker can flag comparisons such
+as a string column against an integer. Queries can also combine models and
+individual columns. Assuming a `FavoriteColor` table with a `person_id` foreign
+key, this query joins each person to their favorite colors:
 
 ```python
 query = select((
@@ -180,4 +174,4 @@ query = select((
 results = await conn.exec(query)
 ```
 
-As expected this will deliver results - and typehint - as a `list[tuple[int, FavoriteColor]]`
+The result is typed as `list[tuple[int, FavoriteColor]]`.
