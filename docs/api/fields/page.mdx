@@ -1,8 +1,8 @@
 # Fields
 
-Fields let you customize the behavior of the Columns. They accept any parameter
-that regular [Pydantic Fields](https://docs.pydantic.dev/latest/concepts/fields/#numeric-constraints) do, plus
-a few extra parameters that are specific to your database.
+Use `Field` to configure a column. It accepts the parameters supported by
+[Pydantic Fields](https://docs.pydantic.dev/latest/concepts/fields/#numeric-constraints),
+plus database options such as primary keys and foreign keys.
 
 ::: iceaxe.field.Field
 
@@ -14,9 +14,9 @@ a few extra parameters that are specific to your database.
 
 ## Postgres Types
 
-Some primitives (like datetimes) allow for more configuration in Postgres
-than their types do in Python. In these cases we provide additional configuration
-classes that can be passed to `postgres_config` within the Field.
+Some Postgres types have options that a Python type alone cannot express,
+such as whether a timestamp uses Postgres's time-zone-aware type. Pass a configuration
+class to `Field(postgres_config=...)` to set these options.
 
 ::: iceaxe.postgres.PostgresFieldBase
 

@@ -1,10 +1,7 @@
 # Logging
 
-At a standard logging level, Iceaxe is conservative with what it logs.
-
-During development it's often useful to increase this verbosity to help diagnose the
-SQL queries that are actually sent to your database. You can set the `ICEAXE_LOG_LEVEL` environment
-variable to `DEBUG` to enable verbose logging:
+Set `ICEAXE_LOG_LEVEL=DEBUG` during development to see the SQL Iceaxe sends to
+Postgres:
 
 ```bash
 ICEAXE_LOG_LEVEL=DEBUG uv run runserver
@@ -16,10 +13,8 @@ This results in a lot of output, so you may want to pipe it to a file:
 ICEAXE_LOG_LEVEL=DEBUG uv run runserver > debug.log
 ```
 
-Each entry in the log will be a JSON formatted, single-lined
-payload with the timestamp and the logged sql message (or whatever other
-message is logged by the iceaxe library). These JSON logs allow for
-easier machine parsing and analysis of query performance.
+Each entry is a single line of JSON containing the timestamp, level, and
+message. You can parse these logs with your usual JSON tools.
 
 ```bash
 {"level": "DEBUG", "name": "iceaxe", "timestamp": "2021-10-14 15:00:00,000", "message": "SELECT * FROM users WHERE id = 1"}
@@ -28,8 +23,7 @@ easier machine parsing and analysis of query performance.
 ## Query failure context
 
 When a query fails, `DBConnection.exec()` raises `IceaxeQueryError`. The exception message includes
-the rendered SQL and bound variables, which makes debugging much easier even when debug logging is
-disabled.
+the rendered SQL and bound variables, even when debug logging is disabled.
 
 Iceaxe preserves the original asyncpg exception hierarchy, so you can still catch specific driver
-errors such as `asyncpg.UniqueViolationError` while benefiting from the extra query context.
+errors such as `asyncpg.UniqueViolationError` and still read the query context.

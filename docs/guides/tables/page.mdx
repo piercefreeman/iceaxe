@@ -1,8 +1,7 @@
 # Table Definition
 
-We define tables in Iceaxe using the `TableBase` class. You define the column
-type by attaching a Python typehint to the class attributes. You can further configure
-these columns by customizing a `Field`.
+Define a table by subclassing `TableBase`. Each annotated attribute becomes a
+column, and `Field` adds options such as primary keys and timestamp settings.
 
 ```python
 from iceaxe import TableBase, Field, PostgresDateTime, DBConnection
@@ -14,9 +13,8 @@ class Employee(TableBase):
     payload: datetime = Field(postgres_config=PostgresDateTime(timezone=True))
 ```
 
-Right now this table just exists in Python. To create it in the database, we need to
-issue the instructions to create the table. You can manually write this SQL or rely
-on our harness to generate it for you.
+The class defines the table in Python. To create it in Postgres, write the SQL
+yourself or call `create_all`:
 
 ```python
 from iceaxe.schemas.cli import create_all
@@ -33,11 +31,9 @@ conn = DBConnection(
 await create_all(conn)
 ```
 
-By default, `create_all` will create all tables that are subclasses of `TableBase` that
-are currently imported into your Python environment. Make sure all the models that you
-use are imported into thet namespace before you call `create_all`. One convenient convention
-to follow is to define your schemas in a `models` folder and then re-export them from
-the `models/__init__.py` file.
+By default, `create_all` creates tables for every imported `TableBase` subclass.
+Import all your models before calling it. One way to keep those imports together
+is to re-export your models from `models/__init__.py`:
 
 ```
 myproject/
@@ -54,8 +50,7 @@ from .employee import Employee as Employee
 from .office import Office as Office
 ```
 
-This allows you to import the one models module and have all of your models available
-with that one import:
+Importing `models` now loads both table definitions before `create_all` runs:
 
 ```python
 from myproject import models
@@ -66,8 +61,7 @@ print(models.Office)
 await create_all(conn)
 ```
 
-You can also limit the models that are created by passing a list of explicit models to
-the `models` argument:
+To create only specific tables, pass their classes in `models`:
 
 ```python
 await create_all(conn, models=[DemoCustomModel])
@@ -75,14 +69,12 @@ await create_all(conn, models=[DemoCustomModel])
 
 ## Fields
 
-This TableBase is a subclass of Pydantic's `BaseModel`, which means that
-you can use Pydantic's validation and serialization features on your
-tables in addition to our database specific flags. You can read more
-about the Pydantic features in the [Pydantic documentation](https://docs.pydantic.dev/latest/concepts/fields/). We
-define our full database options in the Iceaxe [API docs](/iceaxe/api/fields).
+`TableBase` inherits Pydantic's `BaseModel`, so your table objects support its
+validation and serialization features. See the
+[Pydantic documentation](https://docs.pydantic.dev/latest/concepts/fields/) for
+those options and the Iceaxe [API docs](/iceaxe/api/fields) for database options.
 
-To use one example, let's say that you want to validate that the age is
-at least 16. Add a new field validator for that particular field:
+To require an age of at least 16, add a field validator:
 
 ```python
 from iceaxe import TableBase, Field

@@ -1,14 +1,12 @@
 # Queries
 
-Queries allow you to retrieve data from your database. Every query you build with ORM objects
-is a subclass of `QueryBuilder` at its base. This class provides a number of methods to help you
-construct your query and pass the correct types for downstream processing.
+`QueryBuilder` constructs SQL from your table definitions and tracks the
+types of the selected values.
 
 ## Shortcuts
 
-We offer convenience functions for the most common SQL operations. This avoids
-the need to instantiate a `QueryBuilder` directly every time you want a new SQL
-query and typically results in cleaner code.
+Start a query with `select`, `update`, or `delete`. Each returns a query
+builder that you can extend with filters and other clauses.
 
 ::: iceaxe.queries.select
 
@@ -48,9 +46,8 @@ query and typically results in cleaner code.
 
 ## Conditions
 
-If you want to add conditions to your query, you can use the `where` method. If you pass multiple
-conditions to this, they'll be chained together as an `AND` filter. To
-combine OR and AND predicates together, you can use `and_` and `or_`.
+Add filters with `where`. Multiple conditions are combined with `AND`.
+Use `and_` and `or_` to group conditions explicitly.
 
 ::: iceaxe.queries.and_
 

@@ -1,9 +1,7 @@
 # Selects
 
-`SELECT` statements are likely the most common operation you'll perform with Iceaxe. They're used to fetch
-data from the database and receive them in Python instances or primitives. Let's
-consider the following table definition to show how we can interact with
-different types of data:
+Use `SELECT` to fetch rows as Python objects or individual column values.
+We'll query this employee table:
 
 ```python
 from iceaxe import DBConnection, select, TableBase, Field
@@ -14,7 +12,7 @@ class Employee(TableBase):
     age: int
 ```
 
-Let's start off with the following users in the database:
+Assume it contains these employees:
 
 | id | name              | age |
 |----|-------------------|-----|
@@ -22,28 +20,26 @@ Let's start off with the following users in the database:
 | 2  | Astrid Keller     | 42  |
 | 3  | Jasper Okafor     | 36  |
 
-If we want to get an exact match for a single row, we can use the `select` function
-with an exact match filter for Marcus. You'd write this in the same way that you would check
-for equality in a Python if statement.
+Pass a comparison to `where` to find Marcus by name. The equality check uses
+the same syntax as a Python `if` statement:
 
 ```python
 query = select(Employee).where(Employee.name == "Marcus Holloway")
 ```
 
-All defined class attributes in the `Employee` class are available as columns, and these
-columns can be used in equality operations like `==`, `!=`, `>`, `<`, `>=`, `<=`, etc. If we
-want, we can also preview the SQL and variables that are outputted for this query:
+The annotated attributes on `Employee` act as columns in a query. They support
+comparisons such as `==`, `!=`, `>`, and `<=`. Use `build` to inspect the SQL
+and its parameters before executing it:
 
 ```python
 query.build()
 > ('SELECT "employee".* FROM "employee" WHERE "employee"."name" = $1', ['Marcus Holloway'])
 ```
 
-As you see from the build output from `query.build()`, we're constructing a SQL with a single
-WHERE filter that requests matches to `$1`. This is a placeholder for the actual value
-that is passed to the database engine separately. The database engine handles the escaping
-of any special values in this variable to avoid SQL injection attacks. Let's go ahead and execute
-this query against the database to get the actual values back:
+`$1` is a placeholder for "Marcus Holloway". Iceaxe sends the value separately
+from the SQL, so Postgres treats it as data rather than executable SQL. This
+parameter binding prevents values from becoming SQL injection attacks.
+Execute the query with `conn.exec`:
 
 ```python
 results = await conn.exec(query)
@@ -51,10 +47,9 @@ results
 > [Employee(id=1, name='Marcus Holloway', age=28)]
 ```
 
-This will return a list of `Employee` instances that match the query. These instances
-are full Python objects; you can access and modify their attributes as you would with any
-other object. Once received, it's detached from the database connection unless you explicitly
-choose to save it. For more details on how to update data, see the page on [update statements](./inserts).
+The result is a list of `Employee` instances. You can read and change their
+attributes like any Python object. Changes stay in memory until you explicitly
+save them; see [update statements](./inserts).
 
 ## Single-row lookups
 
@@ -75,7 +70,7 @@ except NoObjectFound:
     employee = None
 ```
 
-This is a convenience for the common "give me one model" path:
+Calling `.one()` changes both the query and its result:
 
 - `.one()` only works for a single full table selection such as `select(Employee)`
 - It changes the return type from `list[Employee]` to `Employee`
@@ -87,22 +82,26 @@ query after ordering and filtering have been applied.
 
 ## NULL Comparisons and Column Comparisons
 
-When working with columns that might contain NULL values, you need to be careful about how you compare them.
-In SQL, NULL values have special comparison rules:
+SQL comparisons involving NULL behave differently from Python comparisons
+with `None`:
 
 1. `NULL = NULL` returns NULL (not TRUE)
 2. `NULL != NULL` returns NULL (not FALSE)
 3. `NULL IS NULL` returns TRUE
 4. `NULL IS NOT NULL` returns FALSE
 
-These evaluate to different values than the same logic would in Python if you're comparing two variables. Consider this:
+In Python:
 
 1. `None == None` returns True
 2. `None != None` returns False
 3. `None is None` returns True
 4. `None is not None` returns False
 
-Iceaxe tries to match Python's intuitions. The standard comparison operators (`==` and `!=`) are "null-safe" by default:
+Iceaxe's `==` and `!=` operators account for NULL values. They use `IS NULL`
+for comparisons with `None` and `IS [NOT] DISTINCT FROM` for column comparisons.
+
+For these examples, assume `Employee` also has nullable `manager_id` and
+`supervisor_id` columns:
 
 ```python
 # These handle NULL values correctly automatically
@@ -114,7 +113,7 @@ query = select(Employee).where(Employee.manager_id == Employee.supervisor_id)  #
 query = select(Employee).where(Employee.manager_id != Employee.supervisor_id)  # Uses IS DISTINCT FROM
 ```
 
-If you need more control over the comparison behavior, you can explicitly use the `equals()` and `not_equals()` methods with `null_safe=False`:
+To use SQL's ordinary `=` and `!=` behavior, call `equals()` or `not_equals()`:
 
 ```python
 # Explicitly use non-null-safe comparisons
@@ -127,17 +126,14 @@ query = select(Employee).where(
 )
 ```
 
-The default null-safe behavior means:
-- When comparing with `None`, it automatically uses `IS` and `IS NOT`
-- When comparing columns that might contain NULL values, it automatically uses `IS [NOT] DISTINCT FROM`
-- This matches Python's behavior where `None == None` is `True` and `None != None` is `False`
-
-Most of the time, you'll want to use the default behavior as it handles NULL values in a way that matches Python's semantics. Only override this if you have a specific need for SQL's standard NULL comparison behavior.
+With ordinary SQL equality, comparing two NULL values produces NULL, which
+does not pass a `WHERE` filter. Keep `==` and `!=` when you want two NULL
+values to compare equal, as two `None` values do in Python.
 
 ## Chaining conditions
 
-By default, conditions are combined with an `AND` operator. If you want to combine conditions with an `OR`
-operator, you can use the `or_` function. For example, if you want to get all employees that are either 28 or 36 years old:
+`where` combines multiple conditions with `AND`. Use `or_` to accept either
+condition, such as employees who are 28 or 36:
 
 ```python
 from iceaxe import and_, or_
@@ -149,9 +145,8 @@ query.build()
     WHERE ("employee"."age" = $1 OR "employee"."age" = $2)', [28, 36])
 ```
 
-These operations nest within themselves to create more complicated selection chains.
-Let's extend the filter above to also get anyone who's named Marcus Holloway
-or Astrid Keller. We expect to only receive one result.
+You can nest `and_` and `or_`. Require an age of 28 or 36 **and** a name of
+Marcus Holloway or Astrid Keller. Only Marcus matches both groups:
 
 ```python
 query = select(Employee).where(
@@ -175,18 +170,13 @@ query.build()
     [28, 36, 'Marcus Holloway', 'Astrid Keller'])
 ```
 
-Note that the outside `and_` is optional in this case since where will take care
-of that for you. Still, it can sometimes make your code a bit more readable to include it
-for more complicated query chains.
+The outer `and_` is optional here: passing the two `or_` groups directly to
+`where` combines them with `AND` too.
 
 ## Limit columns
 
-In the above queries, we returned a full instance. For small queries the bandwidth of fetching an entire
-object is usually negligible compared to the convenience of having a full object that you can work with
-in other places in your pipeline. It's easier to track down references to `Employee` versus scattered strings
-that correspond to their name. Still - for larger queries or larger tables, there are times when it's way
-more efficient to only fetch the columns that you need. You can do this by specifying the columns you want
-within the initial selection:
+Selecting `Employee` returns every column. For a query that only needs IDs and
+names, select those columns to avoid transferring the other values:
 
 ```python
 query = select((Employee.id, Employee.name)).where(Employee.name == "Marcus Holloway")
@@ -196,17 +186,13 @@ query.build()
     WHERE "employee"."name" = $1', ['Marcus Holloway'])
 ```
 
-Unlike before when we passed a regular `Employee` class to the `select` function, we're now passing a tuple
-of the different columns that we want to fetch. For any selection of more than one object, you'll need
-to pass a tuple.
+Pass multiple selections as a tuple. This query returns `list[tuple[int, str]]`
+instead of `list[Employee]`.
 
 ## Filter lists
 
-Exact equality or boolean operations are not the only way to filter data. You can also use
-some extensions to filter data in a more complex way. For example, let's say that we
-want to get all employees that are either 28 or 36 years old. We _could_ make two separate
-equality filters like the example above. But it's often easier to use the `in_` function to
-filter data based on a list of values:
+When several values should match, use `in_` with a list. Here it replaces the
+two age comparisons from the previous example:
 
 ```python
 from iceaxe import column
@@ -217,19 +203,14 @@ query.build()
 > ('SELECT "employee".* FROM "employee" WHERE "employee"."age" = ANY($1)', [[28, 36]])
 ```
 
-This will work at runtime with or without the call to `column`. But if you use static analysis like mypy
-or pyright to validate your code, you'll need to use the `column` typecast to avoid type errors. Why?
-In Iceaxe, the type of the column mirrors the type of the instance attribute. For the purposes of static analysis,
-`Employee.age` here validates to an integer. And the integer primitive in Python doesn't have a method called
-`in_`. By using the `column` typecast, you're explicitly telling the static analysis tool that you're
-working with a column object that supports this method accessor.
+`Employee.age` is annotated as `int`, which has no `in_` method. Wrapping it in
+`column` tells mypy or pyright to treat it as a query column. The query works
+at runtime without that wrapper, but a type checker needs it.
 
 ## Aggregation queries
 
-Aggregation queries allow you to perform calculations on groups of rows
-in your database. Iceaxe provides a simple way to construct these queries
-using the `group_by` method and aggregation functions. To make things more
-interesting, let's add a bit more data with some overlapping values:
+Aggregate functions calculate values across rows. Add two employees with the
+same age so we can also try grouping:
 
 
 | id | name              | age |
@@ -254,8 +235,7 @@ await conn.exec(query)
 > [35.6]
 ```
 
-Grouping rows and then executing these functions is even more powerful, because
-you can perform different rollups. A simple one to find the amount of employees by age.
+To count employees of each age, group by `Employee.age` before counting:
 
 ```python
 query = select(
@@ -272,16 +252,13 @@ await conn.exec(query)
 ## Raw SQL
 
 <Note>
-Iceaxe has the philosophy that any queries constructed by the ORM
-should work efficiently and be typehinted correctly. If we can't typehint it correctly, we
-won't offer it within the Python layer. For these cases - and more complex queries in general -
-read this section to learn how to manually cast queries.
+Iceaxe's query builder supports operations it can type correctly. For queries
+outside that support, use raw SQL and declare the expected result types.
 </Note>
 
-If you're working on a more complex, and still want to receive the results as
-Iceaxe typed objects, you can do a manual casting of the results. Using the `text()`
-method of a selection query will override any other dynamic query building and
-just pass your SQL directly to the database engine.
+Call `text()` on a select query to supply your own SQL while retaining typed
+results. It replaces the SQL the query builder would otherwise generate,
+including any filters or joins:
 
 ```python
 from iceaxe import sql
@@ -300,11 +277,11 @@ query.build()
 >, [28]
 ```
 
-The `sql` class is a utility class that allows you to cast Table definitions to a SQL fstring. This gives you
-the ability to use the same Table definitions in your SQL as you do in your Python code, alongside basic typehinting
-of table columns. If you change column names, your linter should detect the conflict in this SQL as well.
+The `sql` helper formats table and column references inside an f-string. Those
+references still use your Python definitions, so a type checker can catch a
+reference to a renamed column.
 
-There are a few different sql methods depending on where you're inserting them in your SQL.
+Choose the formatter for the SQL position:
 
 | Method | Input | Output | Description |
 |--------|--------|---------|-------------|
@@ -315,25 +292,26 @@ There are a few different sql methods depending on where you're inserting them i
 | `sql.raw(Table)` | `User` | `"users"` | Raw table name |
 | `sql.raw(Table.column)` | `User.name` | `"name"` | Raw column name |
 
-Always use sql.select for select queries, since these will internally map to our ORM convention that's required to
-cast the results to the correct Python object during postprocessing.
+Use `sql.select` for selected tables and columns. It generates the aliases
+Iceaxe needs to map the returned values back to Python objects.
 
-We will typecast the results as whatever you pass to the original `select` method, so make sure this value is always
-kept in sync with what you query in your manual SQL text.
+Keep the original `select(...)` arguments in sync with the columns your SQL
+returns; those arguments determine the result types.
 
-The `text` method accept a single string of a SQL operation, then as many variables as you pass
-within the keyword arguments. These variables are accessible to your SQL string as one-indexed
-variables that correspond to the order of arguments. These are formatted as `$1`, `$2`, etc. Variables
-passed via Python variable will be encoded correctly to avoid SQL injection attacks so are recommended
-for any user input.
+Pass query values after the SQL string as positional arguments. The first maps
+to `$1`, the second to `$2`, and so on. Always pass user input this way so it
+is bound as data; do not interpolate it into the SQL string.
 
 ```python
 results = await conn.exec(query)
 > [Employee(id=1, name='Marcus Holloway', age=28)]
 ```
 
-If you have more complicated selection logic that doesn't directly reference table selections via `sql.select`,
-we also support aliasing values to directly extract them from the query.
+For calculated values, use `alias` to associate a SQL result name with its
+Python type or a typed `func` expression.
+
+For the department totals, assume `Employee` also defines `department` and
+`salary` columns:
 
 ```python
 from iceaxe import alias, func
@@ -391,4 +369,5 @@ query = select((
 )
 ```
 
-The `alias` function allows you to map SQL results to typed Python values, while `func` provides type-safe SQL function calls. When combined, they enable you to write complex queries with proper type checking and automatic deserialization.
+The names passed to `alias` must match the aliases in your SQL, such as
+`avg_age` and `department_size` above.

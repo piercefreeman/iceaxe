@@ -1,14 +1,8 @@
 # Relationships
 
-Your data naturally has connections to one another. Students have
-teachers, offices have employees, etc. Relationships are what
-give a _relational_ database like Postgres its name.
-
-Iceaxe has support for relationships via foreign keys. Let's take
-the case of wanting to assign each Employee to an Office of record. We
-define two separate tables for each objects, and specify that the object_id
-key of Employees should link back to the office. This is a one-to-many relationship
-since one office can have many employees.
+An employee belongs to an office, and an office can have many employees. Store
+them in separate tables and link each employee's `office_id` to `Office.id`
+with a foreign key:
 
 ```python
 from iceaxe import TableBase, Field
@@ -23,9 +17,8 @@ class Employee(TableBase):
     office_id: int = Field(foreign_key="office.id")
 ```
 
-When new data is inserted into the database, Postgres will validate that
-the office_id that you've provided does in fact exist in the database. If not,
-our underlying connection will raise an error.
+Postgres checks that an inserted employee's `office_id` exists in the office
+table. If it does not, the insert raises an error:
 
 ```python
 office = Office(name="HQ")
@@ -38,10 +31,8 @@ await conn.insert([valid_employee]) # Works
 await conn.insert([invalid_employee]) # Raises an error
 ```
 
-How do we retrieve the office that an employee is associated with? We can
-use the `join` method to specify that we want to pull in the office data. This
-executes one efficient SQL query to get both objects. The resulting objects
-in Python are typehinted as you expect.
+Use `join` to fetch an employee and their office in one query. Selecting both
+models returns a list of `(Employee, Office)` tuples:
 
 ```python
 from iceaxe import select
@@ -60,14 +51,10 @@ print(f"{alice.name} (office.name)") # Alice (HQ)
 
 ## Many-to-many relationships
 
-Many-to-many relationships are a bit more complex. Let's say we have a
-many-to-many relationship between `Person` and `FavoriteColor`. A person
-can have many favorite colors, and a color can be a favorite of many people.
-
-This calls for a third table, `PersonFavoriteColor`, that links the two
-tables together. It acts as the primary lookup table for the relationship. In theory
-this relationship table can have additional fields - there's nothing unique
-to it being a many-to-many relationship - but in this case we'll keep it simple.
+A person can have several favorite colors, and each color can be a favorite
+of several people. A third table, `PersonFavoriteColor`, stores one person-color
+pair per row. Its two foreign keys also form a composite primary key, preventing
+duplicate pairs:
 
 ```python
 from iceaxe import TableBase, Field
@@ -85,9 +72,7 @@ class PersonFavoriteColor(TableBase):
     color_id: int = Field(foreign_key="favorite_color.id", primary_key=True)
 ```
 
-To query the favorite colors of a person, we can use the `join` method like
-before. Except instead of a direct equality comparison between the two
-tables we'll want to use the bridge table as the central point of the join.
+Join through `PersonFavoriteColor` to fetch each person's colors:
 
 ```python
 query = select((Person, FavoriteColor)).join(
@@ -101,8 +86,7 @@ query = select((Person, FavoriteColor)).join(
 )
 ```
 
-This is a more complicated query than before, so let's consider the actual
-SQL that's being run:
+The two joins first find Alice's person-color pairs, then fetch each color:
 
 ```sql
 SELECT person.*, favorite_color.*
@@ -112,10 +96,9 @@ JOIN favorite_color ON person_favorite_color.color_id = favorite_color.id
 WHERE person.name = 'Alice'
 ```
 
-A plain `JOIN` like this is the same as specifying an `INNER JOIN`. Since SQL
-fetches results in a row based format, we'll receive |Person|*|Color| rows here. In
-other words, if Alice has 3 favorite colors, we'll get 3 rows back alongside
-3 copies of Alice's data. When cast into Python objects, we'll get get the same:
+A plain `JOIN` is an `INNER JOIN`, so it returns only matching pairs. If Alice
+has three favorite colors, the result contains three rows, each repeating
+Alice's data alongside one color:
 
 ```python
 [
@@ -125,8 +108,7 @@ other words, if Alice has 3 favorite colors, we'll get 3 rows back alongside
 ]
 ```
 
-Sometimes, that's okay if you're fetching a small amount of data. You can always
-just group by the person to get a more compact result:
+For a small result set, group the returned pairs by person in Python:
 
 ```python
 from itertools import groupby
@@ -238,11 +220,13 @@ before switching. A plain `UUID` field is sufficient when you do not need distin
 
 ## Composite Primary Keys and Foreign Key Constraints
 
-When working with foreign keys, it's important to understand how Iceaxe handles primary key constraints, especially when you have multiple fields marked as `primary_key=True`.
+A foreign key must reference columns that uniquely identify a row. Marking
+two fields as `primary_key=True` makes their **combination** unique; it does
+not make either field unique by itself.
 
 ### The Issue
 
-Consider this seemingly reasonable model definition:
+Here, `Post.user_id` references only one column of `User`'s composite key:
 
 ```python
 class User(TableBase):
@@ -256,13 +240,15 @@ class Post(TableBase):
     content: str
 ```
 
-This will result in an error during migration generation because of a fundamental mismatch in how constraints work.
+Migration generation fails because `user.id` has no uniqueness constraint of
+its own.
 
 ### Why This Happens
 
-When you mark multiple fields as `primary_key=True`, Iceaxe creates a **single composite primary key constraint** rather than multiple individual primary key constraints. This is the correct PostgreSQL behavior - a table can only have one primary key, but that primary key can span multiple columns.
+Iceaxe creates one primary key across `id` and `tenant_id`. PostgreSQL permits
+only one primary key per table, but that key may contain several columns.
 
-The problem arises because foreign key constraints in PostgreSQL require the target column to have either:
+For this single-column foreign key, the target column must have either:
 1. A primary key constraint, OR  
 2. A unique constraint
 
@@ -273,7 +259,7 @@ When Iceaxe generates foreign key dependencies, it looks for either:
 But when you have multiple `primary_key=True` fields, what actually gets created is:
 - `"user.['id', 'tenant_id'].PRIMARY KEY"` (composite primary key spanning both columns)
 
-The foreign key is looking for an individual constraint on just the `id` column, but the composite primary key constraint covers multiple columns.
+Neither single-column constraint exists, so Iceaxe cannot resolve the reference.
 
 ### Solutions
 
@@ -300,7 +286,8 @@ class Post(TableBase):
 
 **Approach 2 - Modify the target tables:**
 
-Ensure each target table has individual primary keys on referenced columns. This requires changing other tables in your schema and should only be chosen if you specifically need composite primary keys:
+If you need to retain the composite primary key, add a separate unique
+constraint to `id`. This allows a foreign key to reference `id` alone:
 
 ```python
 class User(TableBase):
@@ -322,9 +309,7 @@ class Post(TableBase):
 
 ## Comparison with other ORMs
 
-In some other ORMs that you might have used, there is an explicit
-notion of defining and accessing child models right from the parent object. The
-syntax might be something like:
+Some ORMs let you define relationships as attributes on a model:
 
 ```python
 class Parent(Base):
@@ -335,9 +320,8 @@ class Child(Base):
     parent = relationship("Parent")
 ```
 
-When you access `parent.children`, these ORMs will automatically issue
-a new request to the database to pull the dependent children. Internally
-this usually translates to the following SQL:
+With lazy loading, accessing `parent.children` issues another query to fetch
+the children:
 
 ```python
 # SELECT * FROM parent WHERE id = ?
@@ -348,23 +332,12 @@ for child in parent_obj.children:
     print(child)
 ```
 
-This works naturally in syncronous code but isn't as straightforward
-in async logic. When should the async ORM issue the request to fetch the
-children? Should it be done when the parent object is created? When the
-`children` attribute is accessed? If so, children would need to switch
-to an awaitable type. Will the transaction be held for the duration of
-both fetches? There are typically a host of options that govern each
-ORM's behavior.
+Implicit queries make it harder to see where async code needs to wait for the
+database. They can also cause the N+1 query problem: fetching N parents, then
+issuing one query per parent to load its children.
 
-Plus, if you're dealing with multiple parent objects, it's common
-to unintentionally issue a large number of queries to the database
-when you iterate over the parent objects. This is known as the N+1
-query problem.
-
-Inline with Iceaxe's philosophy that SQL queries are better explicit
-than implicit, we don't support this implicit relationship syntax. Instead
-we support foreign keys and joins directly in the query. If you want to
-implement something similar at the class level, it's pretty easy to do so:
+Iceaxe keeps those queries explicit through joins. If you want a model method
+that loads related rows, give it a connection and make the database call visible:
 
 ```python
 from iceaxe import TableBase, Field, select
@@ -378,6 +351,5 @@ class Parent(TableBase):
         return await conn.exec(query)
 ```
 
-But buyer beware: this will issue a new query to the database every time. Think about
-if this is really the right approach for your use case. Normally it's better
-to default to explicit joins in your queries.
+Every call to `children` issues a query. When loading children for several
+parents, prefer a join or a single query filtered by all the parent IDs.
